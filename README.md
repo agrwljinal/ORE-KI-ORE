@@ -48,6 +48,13 @@ python -m pip install -r requirements.txt
 streamlit run app.py
 ```
 
+For the spatial work independently of the other unfinished team modules, run
+the standalone launcher:
+
+```powershell
+python -m streamlit run spatial_app.py
+```
+
 The original repository still contains TODO shells for the other team
 members’ modules. The spatial module itself can be imported and tested
 without a Streamlit server:
