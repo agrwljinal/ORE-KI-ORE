@@ -117,9 +117,7 @@ with tab2:
 
 # --- TAB 3: Chandrayaan-2 Spectral Layer (Member 2) ---
 with tab3:
-    st.header("ISRO CLASS Spectral Vector Alignment")
-    st.write(f"**Spectral Match Status:** {spec_results['status']} (Similarity: {spec_results['similarity']*100:.2f}%)")
-    spectral.render_spectral_chart(spec_results)
+    spectral.render_aoi_spectral_overlay()
 
 # --- TAB 4: Prescriptive Planning Engine (Member 4) ---
 with tab4:
