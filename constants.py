@@ -1,0 +1,1 @@
+APP_TITLE = "MOIL Mining & Financial Risk Intelligence Command Center"
