@@ -3,4 +3,4 @@ __pycache__/
 .streamlit/
 .env
 venv/
-.DS_Store
+.DS_Store*.log
