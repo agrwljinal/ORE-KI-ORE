@@ -128,6 +128,59 @@ def render_risk_sliders(st_obj):
         "labor_drop_pct": labor_drop_pct,
     }
 
+def calculate_weather_loss(
+    base_shortfall_tons,
+    rainfall_mm,
+    mtbf_hrs,
+    labor_drop_pct,
+    rate_per_ton
+):
+
+# -----------------------------
+# 1. Normalize operational risks
+# -----------------------------
+
+rain_risk = min(max(rainfall_mm / 200.0, 0.0), 1.0)
+
+equipment_risk = 1.0 - min(
+    max(mtbf_hrs / 500.0, 0.0),
+    1.0
+)
+
+labor_risk = min(
+    max(labor_drop_pct / 100.0, 0.0),
+    1.0
+)
+
+# -----------------------------
+# 2. Non-linear severity
+# -----------------------------
+
+rain_impact = rain_risk ** 1.35
+equipment_impact = equipment_risk ** 1.25
+labor_impact = labor_risk ** 1.20
+
+weather_impact = rain_risk ** 1.35
+equipment_impact = equipment_risk ** 1.25
+labor_impact = labor_risk ** 1.20
+
+combined_risk = (
+    0.45 * weather_impact +
+    0.35 * equipment_impact +
+    0.20 * labor_impact
+)
+
+interaction = (
+    1.0
+    + 0.30 * weather_impact * equipment_impact
+    + 0.20 * weather_impact * labor_impact
+)
+effective_risk = combined_risk * interaction
+
+weather_shortfall = base_target_tons * 0.25 * effective_risk
+adjusted_shortfall = base_shortfall_tons + weather_shortfall
+rupee_loss = adjusted_shortfall * rate_per_ton
+
 
 def risk_summary(rainfall_mm, mtbf_hrs, labor_drop_pct):
     """
