@@ -1,0 +1,185 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Balaghat",
+        "state": "Madhya Pradesh",
+        "district": "Balaghat",
+        "geometry_type": "POINT",
+        "coordinate_quality": "PUBLIC_TECHNICAL_MINE_LOCATION",
+        "coordinate_note": "Balaghat mine area reported near 21\u00b050'N, 80\u00b014'E; replace with official lease KML when available.",
+        "coordinate_source": "MOIL-authored technical literature / public mine documentation",
+        "coordinate_source_url": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          80.233333,
+          21.833333
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Ukwa",
+        "state": "Madhya Pradesh",
+        "district": "Balaghat",
+        "geometry_type": "POINT",
+        "coordinate_quality": "PUBLIC_TECHNICAL_MONITORING_POINT",
+        "coordinate_note": "Verified surface monitoring point inside Ukwa mine property; replace with lease KML for boundary rendering.",
+        "coordinate_source": "Published Ukwa subsidence-monitoring study",
+        "coordinate_source_url": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          80.46,
+          21.974667
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Tirodi",
+        "state": "Madhya Pradesh",
+        "district": "Balaghat",
+        "geometry_type": "POINT",
+        "coordinate_quality": "PUBLIC_REFERENCE_POINT_REPLACE",
+        "coordinate_note": "Public reference location for Tirodi; replace with official DGPS/KML before production use.",
+        "coordinate_source": "Public locality reference; mine identity/lease area verified by IBM",
+        "coordinate_source_url": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          79.719167,
+          21.685556
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Gumgaon",
+        "state": "Maharashtra",
+        "district": "Nagpur",
+        "geometry_type": "POLYGON_ENVELOPE",
+        "coordinate_quality": "OFFICIAL_PUBLISHED_EXTENT_ENVELOPE",
+        "coordinate_note": "Rectangle made from published Gumgaon/Khodegaon project coordinate extent; not a legal lease polygon.",
+        "coordinate_source": "MOIL EIA Executive Summary / public environmental-clearance record",
+        "coordinate_source_url": "https://mpcb.gov.in/sites/default/files/public_hearing/exe_summary/2025-06/English%20Executive%20Summary_250616_171546.pdf"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              78.9856825,
+              21.4075961111
+            ],
+            [
+              78.9857302778,
+              21.4075961111
+            ],
+            [
+              78.9857302778,
+              21.4082863889
+            ],
+            [
+              78.9856825,
+              21.4082863889
+            ],
+            [
+              78.9856825,
+              21.4075961111
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Kandri",
+        "state": "Maharashtra",
+        "district": "Nagpur",
+        "geometry_type": "POINT",
+        "coordinate_quality": "OFFICIAL_PUBLISHED_MINE_LOCATION",
+        "coordinate_note": "Published Kandri mine location 21\u00b024'45\"N, 79\u00b016'00\"E.",
+        "coordinate_source": "Maharashtra Pollution Control Board - Kandri EIA executive summary",
+        "coordinate_source_url": "https://www.mpcb.gov.in/sites/default/files/public_hearing/exe_summary/2019-07/kandri.pdf"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          79.266667,
+          21.4125
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Chikla",
+        "state": "Maharashtra",
+        "district": "Bhandara",
+        "geometry_type": "POLYGON_ENVELOPE",
+        "coordinate_quality": "OFFICIAL_PUBLISHED_EXTENT_ENVELOPE",
+        "coordinate_note": "Rectangle made from published Chikla project latitude/longitude limits; not the legal lease polygon.",
+        "coordinate_source": "MoEFCC/Environment Clearance PFR/EAC record for Chikla mine",
+        "coordinate_source_url": ""
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              79.7416972222,
+              21.5323472222
+            ],
+            [
+              79.7692027778,
+              21.5323472222
+            ],
+            [
+              79.7692027778,
+              21.5510333333
+            ],
+            [
+              79.7416972222,
+              21.5510333333
+            ],
+            [
+              79.7416972222,
+              21.5323472222
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "mine_name": "Dongri Buzurg",
+        "state": "Maharashtra",
+        "district": "Bhandara",
+        "geometry_type": "POINT",
+        "coordinate_quality": "PUBLIC_COPY_OF_MOIL_BOUNDARY_POINT_REPLACE",
+        "coordinate_note": "Boundary-point coordinate transcribed from a public copy of MOIL mining-plan material; replace with official KML when obtained.",
+        "coordinate_source": "Public copy of MOIL mining-plan material; mine identity verified by IBM",
+        "coordinate_source_url": ""
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          79.686722,
+          21.546128
+        ]
+      }
+    }
+  ]
+}

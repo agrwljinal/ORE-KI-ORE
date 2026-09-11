@@ -1,0 +1,83 @@
+{
+  "seed": 26009,
+  "design": "SIH26009 schema-faithful synthetic demo generator v3",
+  "raw_geology_target": "mn_pct",
+  "geology_row_meaning": "synthetic assay/interval observation associated with a real MOIL mine; mine coordinates are map anchors, not claimed sample coordinates",
+  "economic_model": {
+    "price": "static lookup by mine + Mn grade band; official IBM ex-mine reference where available, otherwise median official-reference fallback",
+    "cost": "static mine-level production-cost lookup where available, otherwise median official-reference fallback",
+    "profit_proxy_formula": "estimated_tonnage_proxy_t * (reference_price_inr_per_t - production_cost_inr_per_t)",
+    "warning": "profit_proxy_inr is indicative gross margin only; not accounting/net profit"
+  },
+  "tonnage_proxy_formula": "area_m2 * thickness_m * specific_gravity",
+  "warnings": [
+    "Do not call estimated_tonnage_proxy_t a certified reserve/resource estimate.",
+    "Do not sum synthetic observation tonnage proxies into a mine reserve/profit total until real non-overlapping spatial blocks/geometry are available.",
+    "Do not interpret synthetic satellite covariance as a manganese spectral law.",
+    "Do not interpret synthetic chemistry correlations as calibrated MOIL geology.",
+    "Dongri Buzurg production target uses a historical capacity proxy, not a same-period IBM annual plan.",
+    "Tirodi and Dongri Buzurg map points should be replaced with official lease/DGPS/KML geometry when obtained.",
+    "Replace synthetic rainfall with IMD; satellite reflectance with Sentinel-2/ASTER; and operational records with MOIL data when available."
+  ],
+  "validation": {
+    "geology_rows": 500,
+    "geology_mines": 7,
+    "production_rows": 2556,
+    "production_mines": 7,
+    "geo_has_coordinates": true,
+    "oxide_columns_present": true,
+    "tonnage_proxy_present": true,
+    "profit_proxy_present": true,
+    "production_reconciliation": [
+      {
+        "mine_name": "Balaghat",
+        "reference_expected": 349755.0,
+        "reference_generated": 349755.0,
+        "actual_expected": 328975.0,
+        "actual_generated": 328975.0
+      },
+      {
+        "mine_name": "Ukwa",
+        "reference_expected": 113470.0,
+        "reference_generated": 113470.0,
+        "actual_expected": 113946.0,
+        "actual_generated": 113946.0
+      },
+      {
+        "mine_name": "Tirodi",
+        "reference_expected": 109000.0,
+        "reference_generated": 109000.0,
+        "actual_expected": 108831.0,
+        "actual_generated": 108831.0
+      },
+      {
+        "mine_name": "Gumgaon",
+        "reference_expected": 53000.0,
+        "reference_generated": 53000.0,
+        "actual_expected": 38939.59,
+        "actual_generated": 38939.59
+      },
+      {
+        "mine_name": "Kandri",
+        "reference_expected": 63000.0,
+        "reference_generated": 63000.0,
+        "actual_expected": 52716.0,
+        "actual_generated": 52716.0
+      },
+      {
+        "mine_name": "Chikla",
+        "reference_expected": 200000.0,
+        "reference_generated": 200000.0,
+        "actual_expected": 179991.0,
+        "actual_generated": 179991.0
+      },
+      {
+        "mine_name": "Dongri Buzurg",
+        "reference_expected": 350000.0,
+        "reference_generated": 350000.0,
+        "actual_expected": 282758.0,
+        "actual_generated": 282758.0
+      }
+    ]
+  }
+}
