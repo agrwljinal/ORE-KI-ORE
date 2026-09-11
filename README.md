@@ -137,3 +137,27 @@ charts use the supplied synthetic processed geology rows descriptively.
 Detailed prediction maps and cell exports use synthetic spatial demo values
 until the ML GeoJSON provider is configured; this status is shown persistently
 in the interface and in exported GeoJSON (`data_status`).
+## Manganese location, grade and amount demo
+
+Run the Folium/heatmap view with:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m streamlit run manganese_app.py
+```
+
+The map has three layers:
+
+- **Prospectivity (%)**: the demo model's candidate-zone ranking.
+- **Predicted Mn grade (%)**: the linked `processed_geology.csv` `mn_pct` value,
+  displayed as a model-predicted/demo value.
+- **Estimated tonnage proxy (t)**: the supplied
+  `estimated_tonnage_proxy_t` field. It is a geometric proxy, not a certified
+  reserve and must not be summed into a mine total.
+
+The heatmap uses only the four configured candidate zones in
+`constants.py`. It deliberately does not plot all 500 geology rows because
+their coordinates are mine anchors rather than genuine assay coordinates.
+For a real prediction, replace `predict_demo_zones()` with a provider that
+returns georeferenced GeoJSON cells containing `geometry`, `cell_id`,
+`mine_name`, and `predicted_mn_pct` and/or `base_mn_probability`.

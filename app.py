@@ -1,6 +1,7 @@
 import os
 import time
 import datetime
+import math
 from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -477,10 +478,21 @@ def handle_predictions():
         try:
             if not isinstance(payload, dict):
                 return jsonify({"status": "error", "message": "Invalid JSON body: an object is required."}), 400
-            SYSTEM_STATE["rainfall_mm"] = float(payload.get("rainfall_mm", SYSTEM_STATE["rainfall_mm"]))
-            SYSTEM_STATE["mtbf_hrs"] = float(payload.get("mtbf_hrs", SYSTEM_STATE["mtbf_hrs"]))
-            SYSTEM_STATE["labor_drop_pct"] = float(payload.get("labor_drop_pct", SYSTEM_STATE["labor_drop_pct"]))
-            SYSTEM_STATE["target_tonnage"] = int(payload.get("target_tonnage", SYSTEM_STATE["target_tonnage"]))
+            rainfall = float(payload.get("rainfall_mm", SYSTEM_STATE["rainfall_mm"]))
+            mtbf = float(payload.get("mtbf_hrs", SYSTEM_STATE["mtbf_hrs"]))
+            labor = float(payload.get("labor_drop_pct", SYSTEM_STATE["labor_drop_pct"]))
+            target = float(payload.get("target_tonnage", SYSTEM_STATE["target_tonnage"]))
+            if not all(math.isfinite(value) for value in (rainfall, mtbf, labor, target)):
+                raise ValueError("non-finite values are not allowed")
+            if rainfall < 0 or mtbf < 0 or not 0 <= labor <= 100 or target <= 0:
+                return jsonify({
+                    "status": "error",
+                    "message": "Invalid range: rainfall and MTBF must be non-negative, labor must be 0–100%, and target must be positive.",
+                }), 400
+            SYSTEM_STATE["rainfall_mm"] = rainfall
+            SYSTEM_STATE["mtbf_hrs"] = mtbf
+            SYSTEM_STATE["labor_drop_pct"] = labor
+            SYSTEM_STATE["target_tonnage"] = target
             SYSTEM_STATE["mine_name"] = payload.get("mine_name", SYSTEM_STATE.get("mine_name")) or None
         except (TypeError, ValueError):
             return jsonify({
@@ -756,13 +768,6 @@ def get_xai():
         penalties["mtbf"] = penalties.pop("equipment")
 
     try:
-        conf = float(model_confidence(
-            SYSTEM_STATE["rainfall_mm"], SYSTEM_STATE["mtbf_hrs"],
-            SYSTEM_STATE["labor_drop_pct"], spectral_sim,
-        ))
-    except TypeError:
-        conf = float(model_confidence(raw_pred))
-    try:
         attributions = compute_shapley_style_attribution(penalties, spectral_sim)
     except TypeError:
         attributions = compute_shapley_style_attribution(raw_pred)
@@ -774,7 +779,8 @@ def get_xai():
 
     return jsonify({
         "status": "success",
-        "confidence_pct": round(conf * 100.0, 1),
+        "confidence_pct": None,
+        "confidence_status": "NOT_AVAILABLE",
         "attributions": attributions,
         "predicted_tonnage": round(predicted, 2),
         "shortfall_tonnage": round(shortfall, 2),
@@ -817,4 +823,4 @@ def get_weather():
     })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=5000, debug=True)

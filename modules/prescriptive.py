@@ -140,58 +140,104 @@ def _derive_operating_signals(prediction: Optional[Dict[str, Any]],
                 return source.get(key)
         return None
 
+    # --- Penalty convention detection ---
+    # modules/prediction.py emits two DIFFERENT penalty conventions depending
+    # on which backend actually produced the numbers:
+    #   1) deterministic fallback (predict_weekly_tonnage):
+    #        {"rain": min(mm/300,1)*0.35, "mtbf": max(0,(150-mtbf)/150)*0.30,
+    #         "labor": (labor_drop_pct/100)*0.25}
+    #   2) trained 13-feature ML model (predict_shortfall_with_model):
+    #        {"rain": min(mm/100,1), "equipment": min(downtime_hrs/14,1),
+    #         "labor": min(labor_drop_pct/100,1)}
+    # Blindly inverting scale #2 with the #1 formulas produces nonsense
+    # signals (e.g. 88.5 mm rainfall -> ~300 mm, or an 18% labor drop ->
+    # ~72%). Detect the convention from the keys present and invert the
+    # matching one.
+    _uses_model_penalty_scale = "equipment" in penalties
+
     # --- Rainfall ---
     rainfall_mm = _first_present((risk, "rainfall_mm"), (prediction, "rainfall_mm"))
     if rainfall_mm is None:
         rain_penalty = penalties.get("rain")
         if rain_penalty is not None:
-            # Exact inverse of modules/prediction.py: rain_penalty = min(mm/300,1)*0.35
-            rainfall_mm = min(rain_penalty / 0.35, 1.0) * 300.0
-            assumptions.append(
-                "rainfall_mm derived from prediction.penalties.rain via the inverse of the "
-                "documented rain-penalty formula (rain_penalty = min(mm/300,1)*0.35)."
-            )
+            if _uses_model_penalty_scale:
+                # Model convention: rain_penalty = min(mm/100, 1); mm capped at 100.
+                rainfall_mm = min(max(float(rain_penalty), 0.0), 1.0) * 100.0
+                assumptions.append(
+                    "rainfall_mm derived from prediction.penalties.rain via the inverse of the "
+                    "ML-model rain penalty (min(mm/100, 1); the model caps mm at 100)."
+                )
+            else:
+                # Fallback formula: rain_penalty = min(mm/300,1)*0.35
+                rainfall_mm = min(float(rain_penalty) / 0.35, 1.0) * 300.0
+                assumptions.append(
+                    "rainfall_mm derived from prediction.penalties.rain via the inverse of the "
+                    "documented rain-penalty formula (rain_penalty = min(mm/300,1)*0.35)."
+                )
         else:
             rainfall_mm = 0.0
             assumptions.append("rainfall_mm unavailable from prediction/risk; defaulted to 0.0 mm.")
 
     # --- Equipment reliability / downtime ---
     mtbf_hrs = _first_present((risk, "mtbf_hrs"), (prediction, "mtbf_hrs"))
+    equipment_downtime_hours = None
     if mtbf_hrs is None:
-        mtbf_penalty = penalties.get("mtbf")
-        if mtbf_penalty is not None:
-            # Inverse of: mtbf_penalty = max(0,(150-mtbf)/150)*0.30
-            mtbf_hrs = 150.0 - min(mtbf_penalty / 0.30, 1.0) * 150.0
-            assumptions.append(
-                "mtbf_hrs derived from prediction.penalties.mtbf via the inverse of the "
-                "documented MTBF-penalty formula."
-            )
-        else:
-            mtbf_hrs = 150.0
-            assumptions.append("mtbf_hrs unavailable; defaulted to a healthy 150 hrs (no downtime signal).")
-
-    mtbf_penalty_val = penalties.get("mtbf")
-    if mtbf_penalty_val is None:
-        mtbf_penalty_val = max(0.0, (150.0 - mtbf_hrs) / 150.0) * 0.30
-    # Proxy only: no direct equipment-downtime-hours telemetry exists in the
-    # current contract, so this scales the penalty into a 0-24 hr/day band.
-    equipment_downtime_hours = max(0.0, min(1.0, mtbf_penalty_val / 0.30)) * 24.0
-    assumptions.append(
-        "equipment_downtime_hours is a heuristic proxy (0-24 hr/day) scaled from the MTBF "
-        "penalty; no direct downtime telemetry is wired into the pipeline yet."
-    )
+        if _uses_model_penalty_scale:
+            equip_penalty = penalties.get("equipment")
+            if equip_penalty is not None:
+                # Model convention: equipment_downtime_hours = min(12, (150-mtbf)/150*12)
+                # with the penalty normalised by /14. Invert both in one step and
+                # clamp to the model's 12-hr downtime ceiling.
+                equipment_downtime_hours = min(max(float(equip_penalty), 0.0), 1.0) * 14.0
+                equipment_downtime_hours = min(equipment_downtime_hours, 12.0)
+                mtbf_hrs = max(0.0, 150.0 - equipment_downtime_hours * 12.5)
+                assumptions.append(
+                    "equipment_downtime_hours and mtbf_hrs derived from prediction.penalties.equipment "
+                    "via the inverse of the ML-model downtime penalty "
+                    "(downtime = min(downtime/14, 1)*14, capped at the model's 12-hr ceiling)."
+                )
+        if equipment_downtime_hours is None:
+            mtbf_penalty = penalties.get("mtbf")
+            if mtbf_penalty is not None:
+                # Fallback formula: mtbf_penalty = max(0,(150-mtbf)/150)*0.30
+                mtbf_hrs = 150.0 - min(float(mtbf_penalty) / 0.30, 1.0) * 150.0
+                assumptions.append(
+                    "mtbf_hrs derived from prediction.penalties.mtbf via the inverse of the "
+                    "documented MTBF-penalty formula."
+                )
+            else:
+                mtbf_hrs = 150.0
+                assumptions.append("mtbf_hrs unavailable; defaulted to a healthy 150 hrs (no downtime signal).")
+    if equipment_downtime_hours is None:
+        # No direct downtime telemetry exists in the current contract, so a
+        # heuristic proxy scales the (reconstructed) MTBF penalty into a
+        # 0-24 hr/day band.
+        mtbf_penalty_val = max(0.0, (150.0 - float(mtbf_hrs)) / 150.0) * 0.30
+        equipment_downtime_hours = max(0.0, min(1.0, mtbf_penalty_val / 0.30)) * 24.0
+        assumptions.append(
+            "equipment_downtime_hours is a heuristic proxy (0-24 hr/day) scaled from the MTBF "
+            "penalty; no direct downtime telemetry is wired into the pipeline yet."
+        )
 
     # --- Labor ---
     labor_drop_pct = _first_present((risk, "labor_drop_pct"), (prediction, "labor_drop_pct"))
     if labor_drop_pct is None:
         labor_penalty = penalties.get("labor")
         if labor_penalty is not None:
-            # Inverse of: labor_penalty = (labor_drop_pct/100)*0.25
-            labor_drop_pct = min(labor_penalty / 0.25, 1.0) * 100.0
-            assumptions.append(
-                "labor_drop_pct derived from prediction.penalties.labor via the inverse of the "
-                "documented labor-penalty formula."
-            )
+            if _uses_model_penalty_scale:
+                # Model convention: labor_penalty = min(labor_drop_pct/100, 1)
+                labor_drop_pct = min(max(float(labor_penalty), 0.0), 1.0) * 100.0
+                assumptions.append(
+                    "labor_drop_pct derived from prediction.penalties.labor via the inverse of the "
+                    "ML-model labor penalty (min(labor_drop_pct/100, 1))."
+                )
+            else:
+                # Fallback formula: labor_penalty = (labor_drop_pct/100)*0.25
+                labor_drop_pct = min(float(labor_penalty) / 0.25, 1.0) * 100.0
+                assumptions.append(
+                    "labor_drop_pct derived from prediction.penalties.labor via the inverse of the "
+                    "documented labor-penalty formula."
+                )
         else:
             labor_drop_pct = 0.0
             assumptions.append("labor_drop_pct unavailable; defaulted to 0.0% (no labor signal).")

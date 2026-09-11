@@ -105,7 +105,7 @@ function confirmationTier(spectralSimilarity) {
   if (spectralSimilarity === null || spectralSimilarity === undefined)
     return { label: "NO DATA", color: "#64748B", pulse: false, dash: "6 4" };
   if (spectralSimilarity >= 97)
-    return { label: "CONFIRMED", color: "#10B981", pulse: true,  dash: null };
+    return { label: "HIGH SIMILARITY", color: "#10B981", pulse: true,  dash: null };
   if (spectralSimilarity >= 94)
     return { label: "LIKELY",    color: "#22C55E", pulse: false, dash: null };
   if (spectralSimilarity >= 88)
@@ -719,8 +719,8 @@ async function loadPrescriptive() {
 function renderXai(data) {
   const conf = Number(data.confidence_pct);
   document.getElementById("xai-conf-badge").textContent = isFinite(conf)
-    ? `Model Conf: ${conf.toFixed(1)}%`
-    : "Model Conf: --";
+    ? `Synthetic Demo Confidence: ${conf.toFixed(1)}%`
+    : "Confidence: Not available";
 
   const entries = Object.entries(data.attributions || {})
     .filter(([, v]) => isFinite(Number(v)))
