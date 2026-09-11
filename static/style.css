@@ -627,3 +627,198 @@ label {
     border-radius: 0 4px 4px 0;
     line-height: 1.5;
 }
+
+/* API Status Banner (script.js) */
+.api-status-banner {
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    border: 1px solid transparent;
+}
+
+.api-status-banner.error {
+    background: var(--color-red-bg);
+    color: #F87171;
+    border-color: var(--color-red-border);
+}
+
+.api-status-banner.warn {
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--color-amber);
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.api-status-banner.ok {
+    background: var(--color-green-glow);
+    color: var(--color-green-primary);
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+/* Prescriptive recommendation tag + loading placeholder */
+.rec-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--color-green-glow);
+    color: var(--color-green-primary);
+    font-size: 8.5px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.rec-loading {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+    justify-content: center;
+    align-items: center;
+}
+
+.rec-item.loading {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+    justify-content: center;
+    align-items: center;
+}
+
+.rec-item.clickable {
+    cursor: pointer;
+}
+
+/* Prescriptive action checkboxes (HITL selection) */
+.rec-action {
+    gap: 8px;
+}
+
+.rec-action .rec-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.rec-action .rec-gain {
+    margin-left: auto;
+}
+
+.rec-checkbox {
+    margin-right: 2px;
+    width: 15px;
+    height: 15px;
+    accent-color: var(--color-green-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* Plan executed results */
+.exec-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--color-green-glow);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: var(--color-green-primary);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    padding: 9px 12px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+.exec-status-glyph {
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.exec-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.exec-metric {
+    background: var(--card-inner);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
+.exec-metric-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    letter-spacing: 0.6px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.exec-metric-value {
+    font-size: 15px;
+    font-weight: 800;
+    margin-top: 2px;
+}
+
+.exec-metric.ok .exec-metric-value { color: var(--color-green-primary); }
+.exec-metric.warn .exec-metric-value { color: var(--color-amber); }
+.exec-metric.info .exec-metric-value { color: var(--color-cyan); }
+
+.exec-breakdown-title {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    color: #CBD5E1;
+    text-transform: uppercase;
+    margin: 4px 0 6px;
+}
+
+.recovery-breakdown {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.recovery-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    background: var(--card-inner);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid var(--color-cyan);
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
+.recovery-row-left {
+    min-width: 0;
+}
+
+.recovery-name {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.recovery-reason {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 1px;
+    line-height: 1.35;
+}
+
+.recovery-value {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--color-green-primary);
+    white-space: nowrap;
+}
+
+.gain-pill.exec-pill {
+    background: rgba(16, 185, 129, 0.18);
+    border-color: rgba(16, 185, 129, 0.6);
+}

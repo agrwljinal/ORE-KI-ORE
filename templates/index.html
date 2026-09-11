@@ -27,6 +27,9 @@
             </div>
         </header>
 
+        <!-- API STATUS BANNER (injected by script.js) -->
+        <div id="api-status-banner" class="api-status-banner" hidden></div>
+
         <!-- FULL-WIDTH CRITICAL DEFICIT HERO BANNER -->
         <section class="deficit-hero-card" id="hero-banner">
             <div class="deficit-heading-wrap">
@@ -122,7 +125,7 @@
                         <div class="card-header-title">
                             <span>⚡</span> AI Prescriptive Optimization
                         </div>
-                        <span class="gain-pill">+2,800 MT RECOVERABLE</span>
+                        <span class="gain-pill" id="gain-pill">+2,800 MT RECOVERABLE</span>
                     </div>
 
                     <div class="prescriptive-list" id="recommendations-container">
@@ -167,7 +170,7 @@
                     <!-- MANDATED SPECTRAL COMPLIANCE STRIP -->
                     <div class="spec-compliance-card">
                         <div class="spec-match-title" id="spectral-title">97.84% PYROLUSITE SPECTRAL SIMILARITY</div>
-                        <div class="spec-meta-tags">
+                        <div class="spec-meta-tags" id="spectral-tags">
                             <span class="spec-tag">Sentinel-2C L2A</span>
                             <span class="spec-tag">AOI-level screening</span>
                             <span class="spec-tag">USGS Pyrolusite Reference</span>
@@ -192,7 +195,7 @@
                     <div class="xai-bars-container">
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-                                <span>Monsoon Precipitation & Sump Flooding</span>
+                                <span id="xai-lbl-rain">Monsoon Precipitation & Sump Flooding</span>
                                 <span class="xai-pct text-red" id="xai-val-rain">54%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -202,7 +205,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-                                <span>Haulage Fleet & Dumper Downtime (MTBF Loss)</span>
+                                <span id="xai-lbl-mtbf">Haulage Fleet & Dumper Downtime (MTBF Loss)</span>
                                 <span class="xai-pct text-amber" id="xai-val-mtbf">36%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -212,7 +215,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-                                <span>Ore Grade Dilution & Clay Contamination</span>
+                                <span id="xai-lbl-grade">Ore Grade Dilution & Clay Contamination</span>
                                 <span class="xai-pct text-cyan" id="xai-val-grade">10%</span>
                             </div>
                             <div class="xai-bar-track">

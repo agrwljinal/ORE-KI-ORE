@@ -443,6 +443,10 @@ def _build_feature_row(bundle: Dict[str, Any], action: str, mine_name: str, sign
     return row
 
 
+_TRAINING_REFERENCE_TARGET_ROM = 537.0
+_VOLUME_FEATURES = ("target_rom_tonnes", "actual_rom_tonnes", "shortfall_tonnes")
+
+
 def _predict_recovered_tonnage(bundle: Optional[Dict[str, Any]], action: str, mine_name: str,
                                 signals: Dict[str, Any], percentile: str) -> Tuple[Optional[float], Dict[str, float]]:
     if bundle is None:
@@ -450,8 +454,31 @@ def _predict_recovered_tonnage(bundle: Optional[Dict[str, Any]], action: str, mi
     try:
         import pandas as pd  # local import: only needed on the ML path
         row = _build_feature_row(bundle, action, mine_name, signals, percentile)
-        X = pd.DataFrame([row])[bundle["feature_columns"]]
+
+        # Volume normalization: the ML model was trained on daily-scale
+        # production data (median target_rom_tonnes ≈ 537 t). When the live
+        # operation runs at a different production scale, volume features are
+        # normalized into the model's reference domain before prediction, and
+        # the output is scaled back proportionally. This preserves the model's
+        # learned recovery effectiveness (recovered / shortfall ≈ 5–9%)
+        # while correctly converting to the live shortfall quantity.
+        live_target = float(signals.get("target_rom_tonnes", 0.0))
+        volume_ratio = 1.0
+        if live_target > 0.0 and _TRAINING_REFERENCE_TARGET_ROM > 0.0:
+            volume_ratio = live_target / _TRAINING_REFERENCE_TARGET_ROM
+        row_for_model = dict(row)
+        if abs(volume_ratio - 1.0) > 0.05:
+            for vol_key in _VOLUME_FEATURES:
+                if vol_key in row_for_model:
+                    row_for_model[vol_key] = row_for_model[vol_key] / volume_ratio
+            row_for_model["shortfall_pct"] = (
+                row_for_model["shortfall_tonnes"] / row_for_model["target_rom_tonnes"] * 100.0
+            ) if row_for_model.get("target_rom_tonnes", 0.0) > 0 else 0.0
+
+        X = pd.DataFrame([row_for_model])[bundle["feature_columns"]]
         pred = float(bundle["tonnage_model"].predict(X)[0])
+        if abs(volume_ratio - 1.0) > 0.05:
+            pred = pred * volume_ratio
         return max(0.0, pred), row
     except Exception:  # noqa: BLE001 - model path must never crash the app
         return None, {}
@@ -1322,4 +1349,4 @@ def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, An
         "dewatering_status": dewatering_status,
         "plan": computed_plan,
         "is_simulated": True,
-    }
+    }  

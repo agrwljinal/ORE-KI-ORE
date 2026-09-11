@@ -4,7 +4,7 @@ APP_TITLE = "MOIL Mining & Financial Risk Intelligence Command Center"
 
 # Member 3 (prediction.py) shortfall model input.
 # TODO(M3): replace with the real weekly production target for the demo mine.
-BASE_WEEKLY_TARGET_TONS = 1000.0
+BASE_WEEKLY_TARGET_TONS = 14500.0
 
 # Member 1 (spatial.py) default map center when no mine is selected.
 # Matches the fallback already used in spatial_app.py.
