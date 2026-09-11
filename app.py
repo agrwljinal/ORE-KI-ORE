@@ -25,8 +25,10 @@ except ImportError:
         ISRO_CLASS_BASELINE_SPECTRA = [0.11, 0.19, 0.25, 0.37, 0.41, 0.38, 0.30, 0.21]
 
 try:
-    from modules.prediction import predict_weekly_tonnage
+    from modules.prediction import predict_weekly_tonnage, predict_shortfall_with_model
 except ImportError:
+    predict_shortfall_with_model = None
+
     def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
         weather_penalty = rainfall_mm * 14.5
         downtime_penalty = max(0.0, (48.0 - mtbf_hrs)) * 48.0
@@ -174,6 +176,7 @@ SYSTEM_STATE = {
     "labor_drop_pct": 18.0,
     "target_tonnage": C.BASE_WEEKLY_TARGET_TONS,
     "selected_site": "Balaghat Sector 4",
+    "mine_name": None,
     "selected_actions": None,
     "last_updated": datetime.datetime.now(datetime.timezone.utc).isoformat()
 }
@@ -199,6 +202,8 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
         "predicted_output": round(predicted, 2),
         "shortfall_tons": round(shortfall, 2),
         "penalties": raw_pred.get("penalties") or {},
+        "model_used": raw_pred.get("model_used"),
+        "honesty_notes": raw_pred.get("honesty_notes") or [],
         "rupee_loss_inr": rupee_loss,
         "loss_crores": round(rupee_loss / 1e7, 2),
         "plan_applied": plan_applied,
@@ -212,6 +217,25 @@ def _current_params():
         "labor_drop_pct": SYSTEM_STATE["labor_drop_pct"],
         "target_tonnage": SYSTEM_STATE["target_tonnage"],
     }
+
+
+def _make_prediction():
+    """Predict shortfall using the trained 13-feature model when available;
+    falls back to the deterministic formula otherwise."""
+    if predict_shortfall_with_model is not None:
+        return predict_shortfall_with_model(
+            base_target=SYSTEM_STATE["target_tonnage"],
+            rainfall_mm=SYSTEM_STATE["rainfall_mm"],
+            mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
+            labor_drop_pct=SYSTEM_STATE["labor_drop_pct"],
+            mine_name=SYSTEM_STATE.get("mine_name") or None,
+        )
+    return predict_weekly_tonnage(
+        base_target=SYSTEM_STATE["target_tonnage"],
+        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
+        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
+        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
+    )
 
 
 def _shape_recommendation(recs):
@@ -409,18 +433,14 @@ def handle_predictions():
             SYSTEM_STATE["mtbf_hrs"] = float(payload.get("mtbf_hrs", SYSTEM_STATE["mtbf_hrs"]))
             SYSTEM_STATE["labor_drop_pct"] = float(payload.get("labor_drop_pct", SYSTEM_STATE["labor_drop_pct"]))
             SYSTEM_STATE["target_tonnage"] = int(payload.get("target_tonnage", SYSTEM_STATE["target_tonnage"]))
+            SYSTEM_STATE["mine_name"] = payload.get("mine_name", SYSTEM_STATE.get("mine_name")) or None
         except (TypeError, ValueError):
             return jsonify({
                 "status": "error",
                 "message": "Invalid parameter value. Rainfall, MTBF (hrs), labor (%) and target must be numeric.",
             }), 400
 
-    raw_pred = predict_weekly_tonnage(
-        base_target=SYSTEM_STATE["target_tonnage"],
-        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
-    )
+    raw_pred = _make_prediction()
 
     plan_result = None
     if SYSTEM_STATE["plan_executed"]:
@@ -447,12 +467,7 @@ def handle_predictions():
 
 @app.route("/api/prescriptive", methods=["GET", "POST"])
 def handle_prescriptive():
-    raw_pred = predict_weekly_tonnage(
-        base_target=SYSTEM_STATE["target_tonnage"],
-        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
-    )
+    raw_pred = _make_prediction()
     recs = generate_recommendations(raw_pred, None, C.ORE_POCKETS)
 
     if request.method == "POST":
@@ -535,12 +550,7 @@ def get_xai():
     except Exception:  # noqa: BLE001
         pass
 
-    raw_pred = predict_weekly_tonnage(
-        base_target=SYSTEM_STATE["target_tonnage"],
-        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
-    )
+    raw_pred = _make_prediction()
     penalties = raw_pred.get("penalties") or {}
 
     try:
