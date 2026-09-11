@@ -1,8 +1,91 @@
-<<<<<<< HEAD
-// MOIL Command Center - integrated spatial + spectral map + fusion.
-// Every value shown comes from the backend (no hardcoded scores in the UI).
+// MOIL Command Center - integrated spatial + spectral map + ML operations dashboards.
+// Merged frontend: zone-map command center (spatial/spectral/telemetry layers,
+// per-zone inspector, workflow strip, basemap themes) + modern ML dashboards
+// (prediction, prescriptive execution, XAI attribution, spectral chart, pit grid).
 
+const API_BASE_URL = "";
+const API_TIMEOUT_MS = 12000;
+
+let planExecuted = false;
+let lastExecutionResult = null;
+
+const ACTION_LABELS = {
+  REROUTE_FLEET: "Move dumpers to an alternate pit",
+  DEWATERING: "Pump water from the affected pit",
+  PREVENTIVE_MAINTENANCE: "Inspect and service equipment",
+  CONTINGENCY_LABOR: "Arrange additional workers",
+  BLENDING: "Blend ore with available stockpile",
+};
+
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function apiFetch(path, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(API_BASE_URL + path, {
+      ...options,
+      signal: controller.signal,
+      headers: options.body
+        ? { "Content-Type": "application/json", ...(options.headers || {}) }
+        : options.headers,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err && err.name === "AbortError") {
+      throw new ApiError(0, "The request timed out. Check that the backend is running.");
+    }
+    throw new ApiError(0, "Cannot reach the backend. Check that the Flask server is running.");
+  }
+  clearTimeout(timer);
+  if (!res.ok) {
+    let message = `Request failed (HTTP ${res.status})`;
+    try {
+      const body = await res.json();
+      if (body && body.message) message = body.message;
+    } catch (_) { /* keep default message */ }
+    throw new ApiError(res.status, message);
+  }
+  try {
+    return await res.json();
+  } catch (_) {
+    throw new ApiError(502, "The backend returned an invalid response.");
+  }
+}
+
+function fmtNum(value, digits = 0) {
+  const n = Number(value);
+  if (!isFinite(n)) return "N/A";
+  return n.toLocaleString("en-IN", { maximumFractionDigits: digits });
+}
+
+function fmtTons(value) {
+  const n = Number(value);
+  return isFinite(n) ? `${fmtNum(n)} MT` : "N/A";
+}
+
+function setStatus(message, kind = "error") {
+  const banner = document.getElementById("api-status-banner");
+  if (!banner) return;
+  if (!message) {
+    banner.hidden = true;
+    return;
+  }
+  banner.textContent = message;
+  banner.className = `api-status-banner ${kind}`;
+  banner.hidden = false;
+}
+
+// ---------------- MAP + ZONE INTELLIGENCE ----------------
 let map;
+let mapInstance = null;
 let layers = { spatial: null, spectral: null, telemetry: null, aoi: null };
 let baseMapLayer;
 let baseMapMode = "dark";
@@ -37,7 +120,7 @@ function provenanceChip(raw) {
   if (raw.indexOf("SYNTHETIC") !== -1)
     return { text: "SYNTHETIC DEMO DATA (schema-faithful spectra)", cls: "prov-demo" };
   if (raw === "REAL_SPATIAL_SYNTHETIC_SPECTRAL")
-    return { text: "MIXED (real spatial · synthetic spectral)", cls: "prov-mixed" };
+    return { text: "MIXED (real spatial + synthetic spectral)", cls: "prov-mixed" };
   if (raw === "ZONE_LEVEL_SPECTRAL_UNAVAILABLE")
     return { text: "SPECTRAL DATA UNAVAILABLE FOR THIS ZONE", cls: "prov-unavail" };
   return { text: raw, cls: "prov-unknown" };
@@ -94,42 +177,58 @@ function closeZonePanel(event) {
 
 // ---------------- MAP INIT ----------------
 function initMap(center) {
-  map = L.map("spatial-map", { zoomControl: true }).setView(center, 15);
-  updateBasemap();
-
-  const basemapControl = $("map-basemap-mode");
-  if (basemapControl) {
-    basemapControl.addEventListener("change", (event) => {
-      baseMapMode = event.target.value;
-      updateBasemap();
-    });
+  const el = document.getElementById("spatial-map");
+  if (!el) return;
+  if (typeof L === "undefined") {
+    el.textContent = "Map tiles unavailable.";
+    return;
   }
+  if (mapInstance) return;
+  try {
+    map = L.map("spatial-map", { zoomControl: true }).setView(
+      Array.isArray(center) ? center : [21.70, 79.80],
+      Array.isArray(center) ? 15 : 9,
+    );
+    mapInstance = map;
+    updateBasemap();
 
-  const closeBtn = $("zone-panel-close");
-  if (closeBtn) closeBtn.addEventListener("click", closeZonePanel);
+    const basemapControl = $("map-basemap-mode");
+    if (basemapControl) {
+      basemapControl.addEventListener("change", (event) => {
+        baseMapMode = event.target.value;
+        updateBasemap();
+      });
+    }
 
-  layers.spatial   = L.layerGroup().addTo(map);
-  layers.spectral  = L.layerGroup().addTo(map);
-  layers.telemetry = L.layerGroup().addTo(map);
-  layers.aoi       = L.layerGroup().addTo(map);
+    const closeBtn = $("zone-panel-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeZonePanel);
 
-  const bind = (id, layer) => {
-    const control = $(id);
-    if (!control) return;
-    const setActiveState = () => {
-      map.getContainer().classList.toggle("spectral-overlay-active", control.checked);
-    };
-    setActiveState();
-    control.addEventListener("change", (e) => {
-      if (e.target.checked) map.addLayer(layer); else map.removeLayer(layer);
+    layers.spatial   = L.layerGroup().addTo(map);
+    layers.spectral  = L.layerGroup().addTo(map);
+    layers.telemetry = L.layerGroup().addTo(map);
+    layers.aoi       = L.layerGroup().addTo(map);
+
+    const bind = (id, layer) => {
+      const control = $(id);
+      if (!control) return;
+      const setActiveState = () => {
+        map.getContainer().classList.toggle("spectral-overlay-active", control.checked);
+      };
       setActiveState();
-    });
-  };
-  bind("toggle-space-layer", layers.spectral);
+      control.addEventListener("change", (e) => {
+        if (e.target.checked) map.addLayer(layer); else map.removeLayer(layer);
+        setActiveState();
+      });
+    };
+    bind("toggle-space-layer", layers.spectral);
+  } catch (_) {
+    el.textContent = "Map could not be initialised.";
+  }
 }
 
 // ---------------- AOI ----------------
 async function loadAOI() {
+  if (!map) return;
   const r = await fetch("/api/aoi_boundary");
   if (!r.ok) return;
   const data = await r.json();
@@ -142,6 +241,7 @@ async function loadAOI() {
 
 // ---------------- ZONES ----------------
 async function loadZones() {
+  if (!map) return;
   const r = await fetch("/api/zones");
   const data = await r.json();
   layers.spatial.clearLayers();
@@ -226,6 +326,7 @@ async function showZoneDetail(zoneId) {
   const z = await r.json();
   const tier = confirmationTier(z.spectral_similarity);
   const panel = $("zone-panel");
+  if (!panel) return;
   const status = z.operational_status || "Unavailable";
   const water = z.water_depth_m === null || z.water_depth_m === undefined
     ? "Unavailable"
@@ -235,7 +336,6 @@ async function showZoneDetail(zoneId) {
     : `${z.pumps_active} pump${z.pumps_active === 1 ? "" : "s"} active`;
   const scene = z.spectral_scene;
 
-  if (!panel) return;
   panel.classList.add("is-open");
   panel.setAttribute("aria-hidden", "false");
 
@@ -343,215 +443,7 @@ function renderFingerprint(zoneReflectance) {
   });
 }
 
-// ---------------- TELEMETRY ----------------
-async function loadTelemetry() {
-  const r = await fetch("/api/telemetry");
-  const data = await r.json();
-  layers.telemetry.clearLayers();
-  data.ore_pockets.forEach((p) => {
-    const icon = L.divIcon({
-      className: "telemetry-marker",
-      html: `<div class="telemetry-dot">⛏</div>`,
-      iconSize: [22, 22],
-    });
-    L.marker([p.lat, p.lon], { icon })
-      .bindTooltip(`<b>${p.name}</b><br>Status: ${p.status}<br>Pumps active: ${p.pumps_active}`)
-      .on("click", () => showZoneDetail(p.id))
-      .addTo(layers.telemetry);
-  });
-  const t = new Date(data.system_timestamp);
-  $("system-time").textContent = t.toISOString().substr(11, 8) + " UTC";
-}
-
-// ---------------- AOI SPECTRAL ----------------
-async function loadAOISpectral() {
-  const r = await fetch("/api/spectral");
-  const s = await r.json();
-  $("aoi-similarity-value").textContent = s.similarity_pct + "%";
-  $("aoi-tag-platform").textContent = s.scene.platform;
-  $("aoi-tag-date").textContent = "07 Jan 2026";
-  $("aoi-tag-tile").textContent = "Tile " + s.scene.tile;
-  $("aoi-tag-area").textContent = s.aoi_area_ha + " ha AOI";
-  $("aoi-scope-note").textContent = s.scope_note;
-}
-
-// ---------------- PREDICTIONS / RECS / XAI ----------------
-async function refreshPredictions() {
-  const payload = {
-    rainfall_mm: parseFloat($("slider-rainfall").value),
-    mtbf_hrs: parseFloat($("slider-mtbf").value),
-    labor_drop_pct: parseFloat($("slider-labor").value),
-    target_tonnage: parseInt($("input-target").value, 10),
-  };
-  const r = await fetch("/api/predictions", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const d = await r.json();
-  const p = d.prediction;
-  $("hero-shortfall-title").textContent =
-    `SHORTFALL ALERT: ${p.shortfall_tons.toLocaleString()} MT DEFICIT PREDICTED`;
-  $("hero-loss-val").textContent = `₹${p.loss_crores} Cr`;
-  $("hero-output-val").textContent = `${p.predicted_output.toLocaleString()} MT`;
-  $("hero-target-val").textContent = `${p.base_target.toLocaleString()} MT`;
-  $("hero-sim-state").textContent = d.simulation_state;
-  await loadRecommendations();
-}
-
-async function loadRecommendations() {
-  const r = await fetch("/api/prescriptive");
-  const d = await r.json();
-  const container = $("recommendations-container");
-  container.innerHTML = "";
-  d.recommendations.forEach((rec, i) => {
-    const el = document.createElement("div");
-    el.className = `rec-item type-${(i % 3) + 1}`;
-    el.innerHTML = `
-      <div class="rec-content">
-        <div class="rec-title">${rec.title}</div>
-        <div class="rec-desc">${rec.desc}</div>
-      </div>
-      <div class="rec-gain">+${rec.delta_recovery.toLocaleString()} MT</div>`;
-    container.appendChild(el);
-  });
-}
-
-async function loadXAI() {
-  const r = await fetch("/api/xai");
-  const d = await r.json();
-  $("xai-conf-badge").textContent = `Model Conf: ${d.confidence_pct}%`;
-  $("xai-narrative-text").textContent = d.narrative;
-}
-
-async function planAction(action) {
-  await fetch("/api/prescriptive", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action }),
-  });
-  await refreshPredictions();
-}
-
-// ---------------- CONTROL WIRING ----------------
-function wireControls() {
-  const sync = (id, elId, suffix) => {
-    const s = $(id);
-    s.addEventListener("input", () => { $(elId).textContent = s.value + suffix; });
-    s.addEventListener("change", refreshPredictions);
-  };
-  sync("slider-rainfall", "val-rainfall", " mm");
-  sync("slider-mtbf",     "val-mtbf",     " hrs");
-  sync("slider-labor",    "val-labor",    " %");
-  $("input-target").addEventListener("change", () => {
-    $("val-target-label").textContent = parseInt($("input-target").value, 10).toLocaleString() + " MT";
-    refreshPredictions();
-  });
-  $("btn-execute-plan").addEventListener("click", () => planAction("EXECUTE"));
-  $("btn-reset-plan").addEventListener("click", () => planAction("RESET"));
-
-  const closeBtn = $("zone-panel-close");
-  if (closeBtn) {
-    closeBtn.removeEventListener("click", closeZonePanel);
-    closeBtn.addEventListener("click", closeZonePanel);
-  }
-}
-
-document.addEventListener("DOMContentLoaded", async () => {
-  document.addEventListener("click", (event) => {
-    if (event.target.closest("#zone-panel-close")) closeZonePanel(event);
-  }, true);
-  const telemetryR = await fetch("/api/telemetry");
-  const telemetry = await telemetryR.json();
-  initMap(telemetry.center);
-  await Promise.all([
-    loadAOI(), loadZones(), loadTelemetry(),
-    loadAOISpectral(), refreshPredictions(), loadXAI(),
-  ]);
-  wireControls();
-  setInterval(loadTelemetry, 5000);
-=======
-const API_BASE_URL = "";
-const API_TIMEOUT_MS = 12000;
-
-let planExecuted = false;
-let lastExecutionResult = null;
-let mapInstance = null;
-let baseLayer = null;
-let spaceLayer = null;
-
-const ACTION_LABELS = {
-  REROUTE_FLEET: "Move dumpers to an alternate pit",
-  DEWATERING: "Pump water from the affected pit",
-  PREVENTIVE_MAINTENANCE: "Inspect and service equipment",
-  CONTINGENCY_LABOR: "Arrange additional workers",
-  BLENDING: "Blend ore with available stockpile",
-};
-
-class ApiError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-async function apiFetch(path, options = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  let res;
-  try {
-    res = await fetch(API_BASE_URL + path, {
-      ...options,
-      signal: controller.signal,
-      headers: options.body
-        ? { "Content-Type": "application/json", ...(options.headers || {}) }
-        : options.headers,
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    if (err && err.name === "AbortError") {
-      throw new ApiError(0, "The request timed out. Check that the backend is running.");
-    }
-    throw new ApiError(0, "Cannot reach the backend. Check that the Flask server is running.");
-  }
-  clearTimeout(timer);
-  if (!res.ok) {
-    let message = `Request failed (HTTP ${res.status})`;
-    try {
-      const body = await res.json();
-      if (body && body.message) message = body.message;
-    } catch (_) { /* keep default message */ }
-    throw new ApiError(res.status, message);
-  }
-  try {
-    return await res.json();
-  } catch (_) {
-    throw new ApiError(502, "The backend returned an invalid response.");
-  }
-}
-
-function fmtNum(value, digits = 0) {
-  const n = Number(value);
-  if (!isFinite(n)) return "N/A";
-  return n.toLocaleString("en-IN", { maximumFractionDigits: digits });
-}
-
-function fmtTons(value) {
-  const n = Number(value);
-  return isFinite(n) ? `${fmtNum(n)} MT` : "N/A";
-}
-
-function setStatus(message, kind = "error") {
-  const banner = document.getElementById("api-status-banner");
-  if (!banner) return;
-  if (!message) {
-    banner.hidden = true;
-    return;
-  }
-  banner.textContent = message;
-  banner.className = `api-status-banner ${kind}`;
-  banner.hidden = false;
-}
-
+// ---------------- CONTROLS / PREDICTIONS ----------------
 function getControls() {
   return {
     rainfall_mm: parseFloat(document.getElementById("slider-rainfall").value),
@@ -612,6 +504,7 @@ function renderPrediction(data) {
   updateExecuteButtons();
 }
 
+// ---------------- PRESCRIPTIVE EXECUTION ----------------
 function buildRecItem(opt) {
   const item = document.createElement("div");
   item.className = `rec-item rec-action ${opt.recommended ? "type-2" : "type-3"}`;
@@ -822,6 +715,7 @@ async function loadPrescriptive() {
   }
 }
 
+// ---------------- XAI ----------------
 function renderXai(data) {
   const conf = Number(data.confidence_pct);
   document.getElementById("xai-conf-badge").textContent = isFinite(conf)
@@ -860,6 +754,7 @@ async function loadXai() {
   }
 }
 
+// ---------------- SPECTRAL ----------------
 function drawSpectralChart(data) {
   const canvas = document.getElementById("spectralCanvas");
   if (!canvas || !canvas.getContext) return;
@@ -932,6 +827,7 @@ function renderSpectral(data) {
   drawSpectralChart(data);
 }
 
+// ---------------- PIT GRID ----------------
 function renderPitGrid(pockets) {
   const grid = document.getElementById("pit-telemetry-grid");
   if (!grid) return;
@@ -996,49 +892,32 @@ function renderPitGrid(pockets) {
   });
 }
 
-function initMap(center) {
-  const el = document.getElementById("spatial-map");
-  if (!el) return;
-  if (typeof L === "undefined") {
-    el.textContent = "Map tiles unavailable.";
-    return;
-  }
-  if (mapInstance) return;
-  try {
-    mapInstance = L.map("spatial-map").setView(Array.isArray(center) ? center : [21.70, 79.80], 9);
-    baseLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-      subdomains: "abcd",
-      maxZoom: 19,
-    }).addTo(mapInstance);
-    spaceLayer = L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      { attribution: "Tiles &copy; Esri, Maxar, Earthstar Geographics", maxZoom: 19 },
-    );
-    const toggle = document.getElementById("toggle-space-layer");
-    if (toggle) {
-      toggle.addEventListener("change", () => {
-        if (toggle.checked) {
-          spaceLayer.addTo(mapInstance);
-          baseLayer.remove();
-        } else {
-          baseLayer.addTo(mapInstance);
-          spaceLayer.remove();
-        }
-      });
-    }
-  } catch (_) {
-    el.textContent = "Map could not be initialised.";
-  }
-}
-
+// ---------------- TELEMETRY ----------------
 async function loadTelemetry() {
   try {
     const data = await apiFetch("/api/telemetry");
     const site = document.getElementById("site-name");
     if (site && data.site) site.textContent = data.site;
     renderPitGrid(data.ore_pockets || []);
+    const t = new Date(data.system_timestamp);
+    const clock = document.getElementById("system-time");
+    if (clock && !isNaN(t.getTime())) clock.textContent = t.toISOString().substr(11, 8) + " UTC";
     initMap(data.center);
+
+    if (map && layers.telemetry) {
+      layers.telemetry.clearLayers();
+      (data.ore_pockets || []).forEach((p) => {
+        const icon = L.divIcon({
+          className: "telemetry-marker",
+          html: `<div class="telemetry-dot">●</div>`,
+          iconSize: [22, 22],
+        });
+        L.marker([p.lat, p.lon], { icon })
+          .bindTooltip(`<b>${p.name}</b><br>Status: ${p.status}<br>Pumps active: ${p.pumps_active}`)
+          .on("click", () => showZoneDetail(p.id))
+          .addTo(layers.telemetry);
+      });
+    }
   } catch (_) {
     renderPitGrid([]);
   }
@@ -1121,16 +1000,21 @@ function bindControls() {
   if (reset) reset.addEventListener("click", onReset);
 }
 
+// ---------------- INIT ----------------
 async function init() {
   updateControlBadges(getControls());
   await Promise.allSettled([loadTelemetry(), loadSpectral()]);
+  await Promise.allSettled([loadAOI(), loadZones()]);
   await refreshAll();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#zone-panel-close")) closeZonePanel(event);
+  }, true);
   updateClock();
   setInterval(updateClock, 1000);
   bindControls();
   init();
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
+  setInterval(loadTelemetry, 5000);
 });

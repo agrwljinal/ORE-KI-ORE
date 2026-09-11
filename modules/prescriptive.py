@@ -443,13 +443,10 @@ def _build_feature_row(bundle: Dict[str, Any], action: str, mine_name: str, sign
     return row
 
 
-<<<<<<< HEAD
-=======
 _TRAINING_REFERENCE_TARGET_ROM = 537.0
 _VOLUME_FEATURES = ("target_rom_tonnes", "actual_rom_tonnes", "shortfall_tonnes")
 
 
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 def _predict_recovered_tonnage(bundle: Optional[Dict[str, Any]], action: str, mine_name: str,
                                 signals: Dict[str, Any], percentile: str) -> Tuple[Optional[float], Dict[str, float]]:
     if bundle is None:
@@ -457,10 +454,6 @@ def _predict_recovered_tonnage(bundle: Optional[Dict[str, Any]], action: str, mi
     try:
         import pandas as pd  # local import: only needed on the ML path
         row = _build_feature_row(bundle, action, mine_name, signals, percentile)
-<<<<<<< HEAD
-        X = pd.DataFrame([row])[bundle["feature_columns"]]
-        pred = float(bundle["tonnage_model"].predict(X)[0])
-=======
 
         # Volume normalization: the ML model was trained on daily-scale
         # production data (median target_rom_tonnes ≈ 537 t). When the live
@@ -486,7 +479,6 @@ def _predict_recovered_tonnage(bundle: Optional[Dict[str, Any]], action: str, mi
         pred = float(bundle["tonnage_model"].predict(X)[0])
         if abs(volume_ratio - 1.0) > 0.05:
             pred = pred * volume_ratio
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
         return max(0.0, pred), row
     except Exception:  # noqa: BLE001 - model path must never crash the app
         return None, {}
@@ -1357,8 +1349,4 @@ def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, An
         "dewatering_status": dewatering_status,
         "plan": computed_plan,
         "is_simulated": True,
-<<<<<<< HEAD
-    }
-=======
     }  
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388

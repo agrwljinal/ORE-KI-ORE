@@ -7,8 +7,6 @@
 #     labor_penalty = (labor_drop_pct / 100) * 0.25
 #     predicted_tonnage = target * (1 - rain_penalty - mtbf_penalty - labor_penalty)
 #     shortfall_tonnage = base_target - predicted_tonnage
-<<<<<<< HEAD
-=======
 #
 # The original formula remains as a deterministic fallback. When
 # models/shortfall_regression_model.pkl exists (trained by
@@ -166,7 +164,6 @@ def predict_shortfall_with_model(base_target, rainfall_mm, mtbf_hrs, labor_drop_
         "output_ratio": round(output_ratio, 4),
         "honesty_notes": model.get("honesty_notes") or [],
     }
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 
 
 def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
@@ -227,12 +224,8 @@ def render_yield_gauge(base_target, predicted_tonnage):
     st.plotly_chart(fig, use_container_width=True)
 
 
-<<<<<<< HEAD
-__all__ = ["predict_weekly_tonnage", "render_yield_gauge"]
-=======
 __all__ = [
     "predict_weekly_tonnage",
     "predict_shortfall_with_model",
     "render_yield_gauge",
 ]
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388

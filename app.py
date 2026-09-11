@@ -8,30 +8,6 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 # ---------------------------------------------------------
 # BACKEND MODULE IMPORTS & RESILIENT FALLBACK CONTRACTS
 # ---------------------------------------------------------
-<<<<<<< HEAD
-import constants as C  # See constants.py - CANDIDATE_ZONES + fusion weights live there
-
-try:
-    # modules.prediction returns {predicted_tonnage, shortfall_tonnage, penalties}
-    # which does NOT match the {shortfall_tons, predicted_output, ...} shape the
-    # Flask API contract expects. Wrap it to preserve backwards compatibility.
-    from modules.prediction import predict_weekly_tonnage as _predict_raw
-
-    def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
-        r = _predict_raw(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct)
-        shortfall = int(round(r["shortfall_tonnage"]))
-        output = int(round(r["predicted_tonnage"]))
-        rupee_loss = shortfall * C.MN_RATE_PER_TON_INR
-        return {
-            "base_target": int(base_target),
-            "predicted_output": output,
-            "shortfall_tons": shortfall,
-            "rupee_loss_inr": rupee_loss,
-            "loss_crores": round(rupee_loss / 1e7, 2),
-        }
-except Exception:  # noqa: BLE001 - broad by design; use stub if any issue
-    def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
-=======
 try:
     import constants as C
 except ImportError:
@@ -54,7 +30,6 @@ except ImportError:
     predict_shortfall_with_model = None
 
     def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
         weather_penalty = rainfall_mm * 14.5
         downtime_penalty = max(0.0, (48.0 - mtbf_hrs)) * 48.0
         labor_penalty = base_target * (labor_drop_pct / 100.0) * 0.45
@@ -70,10 +45,6 @@ except ImportError:
         }
 
 try:
-<<<<<<< HEAD
-    from modules.prescriptive import generate_recommendations, apply_plan
-except Exception:  # noqa: BLE001 - modules.prescriptive requires streamlit; fall back to stub
-=======
     from modules.prescriptive import (
         generate_recommendations,
         calculate_selected_plan,
@@ -88,7 +59,6 @@ except ImportError:
         "BLENDING": "Blend ore with available stockpile",
     }
 
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
     def generate_recommendations(prediction, risk, ore_pockets):
         return {
             "actions": [
@@ -114,45 +84,6 @@ except ImportError:
             "total_rec_gain": 2800
         }
 
-<<<<<<< HEAD
-    def apply_plan(recommendation, prediction):
-        recovered = recommendation.get("total_rec_gain", 2800)
-        new_shortfall = max(0, prediction["shortfall_tons"] - recovered)
-        new_output = prediction["base_target"] - new_shortfall
-        new_loss = new_shortfall * C.MN_RATE_PER_TON_INR
-        return {
-            "base_target": prediction["base_target"],
-            "predicted_output": new_output,
-            "shortfall_tons": new_shortfall,
-            "rupee_loss_inr": new_loss,
-            "loss_crores": round(new_loss / 1e7, 2),
-            "plan_applied": True
-        }
-
-# The spectral module owns both the AOI-level result and the new per-zone
-# scoring. We import spectral_match for compat, plus the two new helpers.
-from modules import spectral as spectral_module
-from modules.spectral import (
-    spectral_match,
-    build_bharveli_aoi_result,
-    get_zone_reflectance,
-    score_zone_against_references,
-    MINERAL_REFERENCES,
-)
-from modules import fusion as fusion_module
-
-try:
-    from modules.xai import model_confidence, compute_shapley_style_attribution
-except Exception:  # noqa: BLE001 - modules.xai imports streamlit at top level
-    def model_confidence(prediction, risk=None):
-        return 94.2
-
-    def compute_shapley_style_attribution(prediction):
-        return {
-            "rainfall_impact": 54,
-            "fleet_downtime": 36,
-            "grade_purity": 10
-=======
     def calculate_selected_plan(plan_recommendation, prediction, selected_actions=None,
                                 risk=None, ore_pockets=None):
         rec = plan_recommendation or {}
@@ -220,6 +151,21 @@ except ImportError:
             "reference_reflectance": {"B04": 0.06, "B08": 0.06, "B11": 0.09, "B12": 0.08},
         }
 
+# The spectral module owns both the AOI-level result and the new per-zone
+# scoring pipeline (used by the /api/zones endpoints).
+try:
+    from modules import spectral as spectral_module
+    from modules import fusion as fusion_module
+    from modules.spectral import get_zone_reflectance
+    from modules.spectral import MINERAL_REFERENCES
+    ZONE_ENGINE_AVAILABLE = True
+except Exception:  # noqa: BLE001 - zone endpoints 503 instead of crashing the app
+    spectral_module = None
+    fusion_module = None
+    get_zone_reflectance = None
+    MINERAL_REFERENCES = []
+    ZONE_ENGINE_AVAILABLE = False
+
 try:
     from modules.xai import model_confidence, compute_shapley_style_attribution
 except ImportError:
@@ -232,7 +178,6 @@ except ImportError:
             "Equipment MTBF Failure": 36.0,
             "Labor Drop": 8.0,
             "Spectral Variance": 2.0,
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
         }
 
 
@@ -246,20 +191,13 @@ SYSTEM_STATE = {
     "labor_drop_pct": 18.0,
     "target_tonnage": C.BASE_WEEKLY_TARGET_TONS,
     "selected_site": "Balaghat Sector 4",
-<<<<<<< HEAD
-=======
     "mine_name": None,
     "selected_actions": None,
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
     "last_updated": datetime.datetime.now(datetime.timezone.utc).isoformat()
 }
 
 
 # ---------------------------------------------------------
-<<<<<<< HEAD
-# HTTP ROUTING & API ENDPOINTS
-# ---------------------------------------------------------
-=======
 # API RESPONSE SHAPING (real module output -> frontend JSON)
 # ---------------------------------------------------------
 def _prediction_view(raw_pred, base_target, plan_result=None):
@@ -472,13 +410,11 @@ def add_cors_headers(response):
     return response
 
 
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-<<<<<<< HEAD
 def _telemetry_markers_from_zones():
     """Build the legacy 'ore_pockets' payload shape from the new zone list.
 
@@ -487,6 +423,8 @@ def _telemetry_markers_from_zones():
     Coordinates + operational status are labelled SYNTHETIC_DEMO_ZONE_DATA
     so no viewer can mistake them for satellite-detected ore locations.
     """
+    zones = getattr(C, "CANDIDATE_ZONES", [])
+    synthetic_tag = getattr(C, "SYNTHETIC_ZONE_TAG", "SYNTHETIC_DEMO_ZONE_DATA")
     return [
         {
             "id": zone["zone_id"],
@@ -496,14 +434,12 @@ def _telemetry_markers_from_zones():
             "lon": zone["longitude"],
             "water_depth_m": zone.get("water_depth_m", 0.0),
             "pumps_active": zone.get("pumps_active", 0),
-            "data_provenance": zone.get("spatial_provenance", C.SYNTHETIC_ZONE_TAG),
+            "data_provenance": zone.get("spatial_provenance", synthetic_tag),
         }
-        for zone in C.CANDIDATE_ZONES
+        for zone in zones
     ]
 
 
-=======
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 @app.route("/api/telemetry", methods=["GET"])
 def get_telemetry():
     SYSTEM_STATE["last_updated"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -511,11 +447,7 @@ def get_telemetry():
         "status": "ONLINE",
         "system_timestamp": SYSTEM_STATE["last_updated"],
         "site": SYSTEM_STATE["selected_site"],
-<<<<<<< HEAD
-        "center": C.DEFAULT_MAP_CENTER,
-=======
         "center": list(C.DEFAULT_MAP_CENTER),
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
         "scada_channels": {
             "sector_substation_mw": 4.82,
             "sump_pump_draw_kwh": 312.4,
@@ -523,7 +455,6 @@ def get_telemetry():
             "ambient_temp_c": 28.6,
             "relative_humidity_pct": 94.0
         },
-<<<<<<< HEAD
         # Legacy contract preserved; underlying data now comes from
         # constants.CANDIDATE_ZONES so telemetry and the new spectral fusion
         # panel refer to the same zones.
@@ -533,50 +464,12 @@ def get_telemetry():
             "Coordinates are inside the real 76.409-ha Bharveli-Awalajhari AOI "
             "but are not claimed as satellite-detected ore locations."
         ),
-=======
-        "ore_pockets": C.ORE_POCKETS
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
     })
 
 
 @app.route("/api/predictions", methods=["GET", "POST"])
 def handle_predictions():
     if request.method == "POST":
-<<<<<<< HEAD
-        payload = request.get_json(force=True)
-        SYSTEM_STATE["rainfall_mm"] = float(payload.get("rainfall_mm", SYSTEM_STATE["rainfall_mm"]))
-        SYSTEM_STATE["mtbf_hrs"] = float(payload.get("mtbf_hrs", SYSTEM_STATE["mtbf_hrs"]))
-        SYSTEM_STATE["labor_drop_pct"] = float(payload.get("labor_drop_pct", SYSTEM_STATE["labor_drop_pct"]))
-        SYSTEM_STATE["target_tonnage"] = int(payload.get("target_tonnage", SYSTEM_STATE["target_tonnage"]))
-
-    raw_pred = predict_weekly_tonnage(
-        base_target=SYSTEM_STATE["target_tonnage"],
-        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
-    )
-
-    recs = generate_recommendations(raw_pred, None, C.ORE_POCKETS)
-
-    if SYSTEM_STATE["plan_executed"]:
-        final_pred = apply_plan(recs, raw_pred)
-        simulation_state = "OPTIMIZED (PLAN ACTIVE)"
-    else:
-        final_pred = raw_pred
-        final_pred["plan_applied"] = False
-        simulation_state = "UNMITIGATED RISK"
-
-    return jsonify({
-        "parameters": {
-            "rainfall_mm": SYSTEM_STATE["rainfall_mm"],
-            "mtbf_hrs": SYSTEM_STATE["mtbf_hrs"],
-            "labor_drop_pct": SYSTEM_STATE["labor_drop_pct"],
-            "target_tonnage": SYSTEM_STATE["target_tonnage"]
-        },
-        "simulation_state": simulation_state,
-        "plan_executed": SYSTEM_STATE["plan_executed"],
-        "prediction": final_pred
-=======
         payload = request.get_json(silent=True)
         if request.get_data(as_text=True).strip() and payload is None:
             return jsonify({"status": "error", "message": "Malformed JSON body."}), 400
@@ -617,34 +510,11 @@ def handle_predictions():
         "plan_executed": SYSTEM_STATE["plan_executed"],
         "prediction": _prediction_view(raw_pred, SYSTEM_STATE["target_tonnage"], plan_result),
         "plan": _shape_execution(plan_result)
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
     })
 
 
 @app.route("/api/prescriptive", methods=["GET", "POST"])
 def handle_prescriptive():
-<<<<<<< HEAD
-    raw_pred = predict_weekly_tonnage(
-        base_target=SYSTEM_STATE["target_tonnage"],
-        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
-    )
-    recs = generate_recommendations(raw_pred, None, C.ORE_POCKETS)
-
-    if request.method == "POST":
-        action = request.get_json(force=True).get("action")
-        if action == "EXECUTE":
-            SYSTEM_STATE["plan_executed"] = True
-        elif action == "RESET":
-            SYSTEM_STATE["plan_executed"] = False
-
-    return jsonify({
-        "plan_executed": SYSTEM_STATE["plan_executed"],
-        "recommendations": recs["actions"],
-        "total_rec_gain": recs["total_rec_gain"]
-    })
-=======
     raw_pred = _make_prediction()
     recs = generate_recommendations(raw_pred, None, C.ORE_POCKETS)
 
@@ -710,30 +580,47 @@ def handle_prescriptive():
         payload = _build_prescriptive_response(raw_pred, recs, plan_result)
 
     return jsonify(payload)
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 
 
 @app.route("/api/spectral", methods=["GET"])
 def get_spectral():
-<<<<<<< HEAD
-    """AOI-level spectral screening result.
+    """AOI-level spectral screening result (combined contract).
 
     This is the ONE mine-wide 97.84% Pyrolusite similarity figure derived
     from the supplied Sentinel-2C L2A scene mean vs the USGS Pyrolusite
     reference. It is NOT the score for any individual pit or candidate
     zone. Per-zone scores live at /api/zones.
+
+    The payload serves both the legacy frontend contract (similarity_pct /
+    scene.platform / scene.tile / aoi_area_ha / scope_note) and the newer
+    frontend contract (similarity as a fraction, label, scene.satellite_sensor,
+    spectral_potential, interpretation, wavelengths_um, live_reflectance,
+    reference_reflectance).
     """
-    aoi = build_bharveli_aoi_result()
+    try:
+        aoi = build_bharveli_aoi_result()
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"status": "error", "message": f"Spectral module unavailable: {type(exc).__name__}"}), 503
+
+    similarity = float(aoi.get("similarity", 0.9784))
+    scene = dict(aoi.get("scene") or {})
+    scene.setdefault("satellite_sensor", scene.get("platform") or "Sentinel-2C L2A")
+
     return jsonify({
+        "status": aoi.get("status", "computed"),
         "level": "AOI",
-        "label": aoi["label"],  # "Pyrolusite Spectral Similarity"
-        "similarity_pct": round(aoi["similarity"] * 100.0, 2),
-        "spectral_potential": aoi["spectral_potential"],
-        "aoi_name": aoi["aoi_name"],
-        "aoi_area_ha": aoi["aoi_area_ha"],
-        "scene": aoi["scene"],
-        "live_reflectance": aoi["live_reflectance"],
-        "reference_reflectance": aoi["reference_reflectance"],
+        "label": aoi.get("label", "Pyrolusite Spectral Similarity"),
+        "similarity": similarity,
+        "similarity_pct": round(similarity * 100.0, 2),
+        "spectral_potential": aoi.get("spectral_potential"),
+        "aoi_name": aoi.get("aoi_name"),
+        "aoi_area_ha": aoi.get("aoi_area_ha"),
+        "interpretation": aoi.get("interpretation"),
+        "scene": scene,
+        "wavelengths_um": aoi.get("wavelengths_um") or {},
+        "live_reflectance": aoi.get("live_reflectance") or {},
+        "reference_reflectance": aoi.get("reference_reflectance") or {},
+        "overlap_points": aoi.get("overlap_points"),
         "reference_source": "USGS Digital Spectral Library (splib05a) - Pyrolusite",
         "compliance_note": "Prototype threshold - requires field/lab validation",
         "scope_note": (
@@ -795,6 +682,8 @@ def _evaluate_zone(zone_config):
 @app.route("/api/zones", methods=["GET"])
 def list_zones():
     """Return every candidate zone with its per-zone fusion result."""
+    if not ZONE_ENGINE_AVAILABLE:
+        return jsonify({"error": "Zone fusion engine unavailable."}), 503
     zones = [_evaluate_zone(zone) for zone in C.CANDIDATE_ZONES]
     return jsonify({
         "zones": zones,
@@ -815,6 +704,8 @@ def list_zones():
 @app.route("/api/aoi_boundary", methods=["GET"])
 def get_aoi_boundary():
     """Return the real 76.409-ha MOIL AOI boundary as GeoJSON features."""
+    if not ZONE_ENGINE_AVAILABLE:
+        return jsonify({"error": "AOI boundary engine unavailable.", "features": []}), 503
     try:
         features = spectral_module.load_aoi_kml()
     except (FileNotFoundError, ValueError) as exc:
@@ -831,6 +722,8 @@ def get_aoi_boundary():
 @app.route("/api/zones/<zone_id>", methods=["GET"])
 def get_zone(zone_id):
     """Return the full per-zone fusion result for a single zone (map click)."""
+    if not ZONE_ENGINE_AVAILABLE:
+        return jsonify({"error": "Zone fusion engine unavailable."}), 503
     for zone in C.CANDIDATE_ZONES:
         if zone["zone_id"] == zone_id:
             payload = _evaluate_zone(zone)
@@ -845,35 +738,10 @@ def get_zone(zone_id):
             ]
             return jsonify(payload)
     return jsonify({"error": f"Unknown zone_id: {zone_id}"}), 404
-=======
-    try:
-        return jsonify(build_bharveli_aoi_result())
-    except Exception as exc:  # noqa: BLE001
-        return jsonify({"status": "error", "message": f"Spectral module unavailable: {type(exc).__name__}"}), 503
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 
 
 @app.route("/api/xai", methods=["GET"])
 def get_xai():
-<<<<<<< HEAD
-    raw_pred = predict_weekly_tonnage(
-        base_target=SYSTEM_STATE["target_tonnage"],
-        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
-    )
-    conf = model_confidence(raw_pred)
-    attributions = compute_shapley_style_attribution(raw_pred)
-    return jsonify({
-        "confidence_pct": conf,
-        "attributions": attributions,
-        "narrative": "XAI Diagnostic: Sump flooding in Pit 1 constitutes 54% of throughput disruption. Executing prescriptive rerouting to Pit B captures 46% Mn reserves, restoring 82% of target recovery margin."
-    })
-
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5001)
-=======
     spectral_sim = 0.9784
     try:
         spectral_sim = float(build_bharveli_aoi_result().get("similarity") or spectral_sim)
@@ -881,7 +749,11 @@ if __name__ == "__main__":
         pass
 
     raw_pred = _make_prediction()
-    penalties = raw_pred.get("penalties") or {}
+    penalties = dict(raw_pred.get("penalties") or {})
+    # Harmonize the ML model's penalty key ("equipment") with the key the XAI
+    # engine expects ("mtbf") so attributions stay meaningful on both paths.
+    if "equipment" in penalties and "mtbf" not in penalties:
+        penalties["mtbf"] = penalties.pop("equipment")
 
     try:
         conf = float(model_confidence(
@@ -933,7 +805,7 @@ def get_weather():
         # Fetch live weather data using your WeatherModule
         result = weather_module.service.fetch_live_weather(city)
         return jsonify(result)
-    
+
     # Mock fallback if modules/weather.py is missing
     return jsonify({
         "success": True,
@@ -946,4 +818,3 @@ def get_weather():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
