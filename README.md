@@ -1,3 +1,16 @@
+### Spectral Reference Data
+
+The prototype uses a Pyrolusite reference spectrum from the
+USGS Digital Spectral Library (splib05a), USGS Open-File Report 03-395.
+
+Source:
+https://pubs.usgs.gov/of/2003/ofr-03-395/ASCII/M/pyrolusite_hs138.5705.asc
+
+The reference spectrum is used for spectral similarity comparison
+with satellite-derived reflectance values.
+
+
+
 # MOIL GeoMine Intelligence — spatial module
 
 This repository is the team’s Streamlit integration shell for SIH26009. The

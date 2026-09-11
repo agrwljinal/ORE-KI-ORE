@@ -1,3 +1,13 @@
+# Reference spectral data:
+# Pyrolusite HS138.3B W1R1Bb AREF
+# USGS Digital Spectral Library (splib05a)
+# USGS Open-File Report 03-395
+# Source:
+# https://pubs.usgs.gov/of/2003/ofr-03-395/ASCII/M/pyrolusite_hs138.5705.asc
+
+
+
+
 """Bharveli-Awalajhari AOI spectral-potential overlay."""
 
 from __future__ import annotations
