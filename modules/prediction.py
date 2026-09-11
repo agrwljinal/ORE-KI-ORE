@@ -199,8 +199,16 @@ def predict_shortfall_with_model(base_target, rainfall_mm, mtbf_hrs, labor_drop_
         "predicted_tonnage": round(predicted, 2),
         "shortfall_tonnage": round(shortfall, 2),
         "penalties": {
+            # Raw normalised-feature semantics (NOT 1-factor): the prescriptive
+            # engine inverts these back into rainfall/downtime/labor signals
+            # using the documented convention min(feature/cap, 1).
+            "rain": round(rain_norm, 4),
+            "equipment": round(downtime_norm, 4),
+            "labor": round(labor_norm, 4),
+        },
+        "factor_penalties": {
             "rain": round(1.0 - rainfall_factor, 4),
-            "equipment": round(1.0 - uptime_factor, 4),
+            "uptime": round(1.0 - uptime_factor, 4),
             "labor": round(1.0 - labor_factor, 4),
         },
         "model_used": f"multiplicative_factor_{dtype}",
