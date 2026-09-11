@@ -192,6 +192,7 @@ def render_aoi_spectral_overlay() -> None:
     with right:
         st.subheader("Spectral review")
         st.markdown(f"**Pyrolusite spectral similarity:** `{result['similarity'] * 100:.2f}%`")
+        st.caption("Prototype threshold — requires field/lab validation.")
         st.markdown("**Reference vector:** USGS Digital Spectral Library - pyrolusite")
         st.markdown("**Noise context:** AOI mean reflectance; no per-pixel vegetation or moisture mask was supplied.")
         st.success("HIGH SPECTRAL POTENTIAL - validate with field assay before dispatch decisions")
