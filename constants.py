@@ -138,6 +138,8 @@ CANDIDATE_ZONES = [
         "pumps_active": 0,
         # Highest spectral similarity - visually CONFIRMED (pulsing green ring)
         "linked_geology_record_id": "GEO-000015",
+        # SYNTHETIC_DEMO chip config for the vegetation-masking demo mode.
+        "demo_chip": {"size": 20, "seed": 1101, "vegetation_fraction": 0.08, "water_fraction": 0.06},
     },
     {
         "zone_id": "ZONE_B",
@@ -152,6 +154,7 @@ CANDIDATE_ZONES = [
         "pumps_active": 2,
         # Mid-high spectral - LIKELY (solid green ring)
         "linked_geology_record_id": "GEO-000005",
+        "demo_chip": {"size": 20, "seed": 1102, "vegetation_fraction": 0.26, "water_fraction": 0.05},
     },
     {
         "zone_id": "ZONE_C",
@@ -166,6 +169,9 @@ CANDIDATE_ZONES = [
         "pumps_active": 1,
         # Mid spectral - WEAK match (amber dashed ring)
         "linked_geology_record_id": "GEO-000055",
+        # Heavily vegetated: demo shows the NDVI guard suppressing a misleading
+        # spectral score (too few usable surface pixels remain).
+        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.90, "water_fraction": 0.02},
     },
     {
         "zone_id": "ZONE_D",
@@ -181,5 +187,6 @@ CANDIDATE_ZONES = [
         # Lowest spectral - MISMATCH (red dashed ring)
         # Story: spatial model was wrong here; spectral saves us a wasted field crew
         "linked_geology_record_id": "GEO-000026",
+        "demo_chip": {"size": 20, "seed": 1104, "vegetation_fraction": 0.40, "water_fraction": 0.05},
     },
 ]

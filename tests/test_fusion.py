@@ -112,5 +112,50 @@ class ZoneReflectanceExtractionTests(unittest.TestCase):
         self.assertNotAlmostEqual(s1, s2, places=2)
 
 
+class NdviMaskFusionIntegrationTests(unittest.TestCase):
+    """NDVI-masked pixel means must flow cleanly through the fusion engine."""
+
+    def _chip(self):
+        # 100 pixels, 5 vegetation-dominated (NDVI > 0.30), 95 exposed.
+        b04, b08 = [0.20] * 95 + [0.05] * 5, [0.22] * 95 + [0.60] * 5
+        return {"B04": b04, "B08": b08, "B11": [0.30] * 100, "B12": [0.20] * 100}
+
+    def test_masked_means_score_through_evaluate_zone(self):
+        mask = spectral.apply_ndvi_mask(self._chip())
+        self.assertTrue(mask.scorable)
+
+        e = fusion.evaluate_zone(
+            "M1", 21.85, 80.22, spatial_score=80.0,
+            zone_reflectance=mask.mean_reflectance,
+            mineral_references=[
+                fusion.MineralReference(
+                    mineral_id="pyrolusite", display_name="Pyrolusite",
+                    reflectance={"B04": 0.05, "B08": 0.06, "B11": 0.09, "B12": 0.08},
+                    provenance="test",
+                )
+            ],
+            spectral_scorer=lambda a, b: 0.90,
+        )
+        self.assertIsNotNone(e.spectral_similarity)
+        self.assertEqual(e.best_mineral_match, "pyrolusite")
+
+    def test_fully_vegetated_chip_yields_no_spectral_score(self):
+        mask = spectral.apply_ndvi_mask({
+            "B04": [0.05] * 200, "B08": [0.60] * 200,
+            "B11": [0.30] * 200, "B12": [0.20] * 200,
+        })
+        self.assertFalse(mask.scorable)
+        self.assertIsNone(mask.mean_reflectance)
+
+        e = fusion.evaluate_zone(
+            "M2", 21.85, 80.22, spatial_score=80.0,
+            zone_reflectance=mask.mean_reflectance,  # None -> spatial only
+            mineral_references=[],
+            spectral_scorer=lambda a, b: 0.90,
+        )
+        self.assertIsNone(e.spectral_similarity)
+        self.assertEqual(e.final_exploration_score, 80.0)
+
+
 if __name__ == "__main__":
     unittest.main()

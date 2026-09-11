@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=20260912l">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -24,6 +24,7 @@
                     <span>LIVE SCADA FEED</span>
                 </div>
                 <div class="utc-clock" id="system-time">--:--:-- UTC</div>
+                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912L</span></div>
             </div>
         </header>
 
@@ -152,15 +153,18 @@
                             <span>🛰️</span> Spatial Reserve & Telemetry Map
                         </div>
                         <div class="map-controls-inline">
-                            <label class="toggle-container mini">
-                                <input type="checkbox" id="toggle-space-layer" checked>
+                            <label class="toggle-container mini toggle-stack">
+                                <input type="checkbox" id="toggle-space-layer">
                                 <span class="toggle-slider"></span>
-                                <span class="toggle-label">CLASS-Informed Spectral Transfer</span>
+                                <span class="toggle-stack-text">
+                                    <span class="toggle-label">SPECTRAL MINERAL SCREENING</span>
+                                    <span class="toggle-sub">Chandrayaan-2 inspired · Sentinel-2 based</span>
+                                </span>
                             </label>
-<label class="map-theme-control">
+                            <label class="map-theme-control">
                                 <span class="toggle-label">Basemap</span>
                                 <select id="map-basemap-mode" class="industrial-select">
-                                    <option value="dark" selected>🌑 Dark Matter</option>
+                                    <option value="dark" selected>🌑 Dark</option>
                                     <option value="satellite">🛰️ Satellite Imagery</option>
                                     <option value="terrain">🗺️ Terrain</option>
                                 </select>
@@ -170,7 +174,15 @@
                     </div>
 
                     <!-- Leaflet Container -->
-                    <div id="spatial-map" class="map-render-frame"></div>
+                    <div id="spatial-map" class="map-render-frame" tabindex="-1" aria-label="Spatial mining intelligence map"></div>
+
+                    <!-- SYNTHETIC DEMO SCOPE BANNER -->
+                    <div id="veg-demo-banner" class="veg-demo-banner">
+                        <span class="veg-demo-badge">SYNTHETIC DEMO DATA</span>
+                        Simulated pixel chips power the NDVI surface filter, vegetation-masked
+                        spectral screening and the synthetic surface renderer.
+                        These are <strong>not</strong> real Sentinel-2 observations.
+                    </div>
 
 <!-- PER-ZONE INTELLIGENCE INSPECTOR -->
                     <aside id="zone-panel" class="zone-panel zone-inspector" aria-hidden="true">
@@ -188,6 +200,29 @@
                         </div>
 
                         <div class="zone-inspector-grid">
+
+                            <section class="zone-inspector-section zone-inspector-surface">
+                                <div class="zone-inspector-section-title">Surface Filter <span class="sf-demotag">SYNTHETIC DEMO DATA</span></div>
+                                <canvas id="zp-surface-canvas" class="zone-surface-canvas" width="360" height="200"></canvas>
+                                <div class="surface-filter-row">
+                                    <div class="view-toggle" role="group" aria-label="Surface view">
+                                        <button type="button" class="view-btn view-raw active" id="btn-surface-raw" aria-pressed="true" disabled>Raw</button>
+                                        <button type="button" class="view-btn view-filtered" id="btn-surface-filtered" aria-pressed="false" disabled>Filtered</button>
+                                    </div>
+                                    <button type="button" id="btn-surface-filter" class="btn btn-primary" disabled>RUN NDVI SURFACE FILTER</button>
+                                    <span class="surface-state" id="zp-surface-state">RAW SURFACE</span>
+                                </div>
+                                <div class="surface-stats">
+                                    <div><span>Vegetation removed</span><strong id="zp-veg-pct">--</strong></div>
+                                    <div><span>Usable surface</span><strong id="zp-usable-pct">--</strong></div>
+                                    <div><span>Pixels analysed</span><strong id="zp-pixels">--</strong></div>
+                                </div>
+                                <div class="ndvi-stats" id="zp-ndvi-stats">NDVI mean / median / min / max appear after the scan</div>
+                                <div class="surface-status-line">
+                                    <span id="zp-surface-status">--</span><span class="sf-dot">·</span>Data: <strong id="zp-surface-data">SYNTHETIC DEMO</strong>
+                                </div>
+                            </section>
+
                             <section class="zone-inspector-section">
                                 <div class="zone-inspector-section-title">Operational Details</div>
                                 <div class="zone-detail-list">
@@ -200,22 +235,28 @@
                             </section>
 
                             <section class="zone-inspector-section">
-                                <div class="zone-inspector-section-title">Spatial Intelligence</div>
+                                <div class="zone-inspector-section-title">Spatial Prospectivity</div>
+                                <div class="score-label-row">SPATIAL PROSPECTIVITY</div>
                                 <div class="zone-inspector-score"><strong id="zp-spatial">--</strong><span id="zp-spatial-band">--</span></div>
                                 <div class="zone-inspector-copy" id="zp-spatial-reason">--</div>
                             </section>
 
                             <section class="zone-inspector-section">
                                 <div class="zone-inspector-section-title">Spectral Intelligence</div>
+                                <div class="score-label-row">SPECTRAL SIMILARITY</div>
                                 <div class="zone-inspector-score"><strong id="zp-spectral">--</strong><span id="zp-spectral-band">--</span></div>
+                                <div class="score-label-row best-mineral-row">BEST MINERAL MATCH</div>
                                 <div class="zone-inspector-copy"><span id="zp-best-mineral">--</span></div>
                                 <div class="zone-inspector-copy" id="zp-spectral-scene">--</div>
                                 <div class="provenance-chip prov-unknown" id="zp-provenance">--</div>
+                                <div class="zone-inspector-copy" id="zp-veg-mask">--</div>
+                                <div class="veg-chain-strip" id="zp-veg-chain">--</div>
                                 <div id="zp-fingerprint" class="zone-fingerprint"></div>
                             </section>
 
                             <section class="zone-inspector-section zone-inspector-final">
-                                <div class="zone-inspector-section-title">Final Assessment</div>
+                                <div class="zone-inspector-section-title">Final Exploration Priority</div>
+                                <div class="score-label-row">FINAL EXPLORATION PRIORITY</div>
                                 <div class="zone-inspector-final-score"><strong id="zp-final">--</strong><span id="zp-priority">--</span></div>
                                 <div class="zone-inspector-copy" id="zp-explanation">--</div>
                                 <div class="zone-inspector-action" id="zp-action">--</div>
@@ -297,7 +338,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=20260912l"></script>
 <script src="/static/weather.js"></script>
 </body>
 </html>

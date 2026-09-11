@@ -89,6 +89,28 @@ let mapInstance = null;
 let layers = { spatial: null, spectral: null, telemetry: null, aoi: null };
 let baseMapLayer;
 let baseMapMode = "dark";
+// The front-end presentation pipeline always runs over the clearly-labelled
+// SYNTHETIC_DEMO chips (no real raster is available), so the vegetation mask
+// and surface renderer are always in demo mode.
+let vegDemoMode = true;
+
+// Space-tech spectral screening state (scan sweep + energy halos).
+let screeningActive = false;
+let haloMarkers = [];
+let revealStopToken = 0;
+
+// Latest loaded zones + marker registry for focusing/highlighting.
+let zonesCache = [];
+let zoneMarkers = {};
+
+// Synthetic surface renderer state.
+let surfaceMode = "raw";   // "raw" | "filtered"
+let surfaceChip = null;    // { classes, size, mask }
+let surfaceOverlay = null; // on-map image overlay showing the chip at zoom
+let surfaceOverlayFrame = null;
+let activeZone = null;     // last zone whose detail panel was opened
+let activeZoneId = null;   // the actual zone_id captured at pin-click time
+let surfaceScanning = false; // live NDVI sweep in progress (toggles locked)
 
 // Pyrolusite reference vector (matches modules.spectral.PYROLUSITE_REFERENCE).
 // Only used for visual comparison in the fingerprint bars.
@@ -97,8 +119,14 @@ const PYROLUSITE_REF = { B04: 0.05571, B08: 0.05838, B11: 0.09301, B12: 0.08208 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, s = "") => (n === null || n === undefined) ? "--" : `${n}${s}`;
 
-const priorityColor = (p) =>
-  p === "HIGH" ? "#EF4444" : p === "MEDIUM" ? "#F59E0B" : "#22D3EE";
+const priorityStyle = (p) => {
+  if (p === "HIGH")   return { color: "#F87171", glow: "rgba(248, 113, 113, 0.70)" };
+  if (p === "MEDIUM") return { color: "#FBBF24", glow: "rgba(251, 191, 36, 0.65)" };
+  return { color: "#4ADE80", glow: "rgba(74, 222, 128, 0.65)" };
+};
+const priorityColor = (p) => priorityStyle(p).color;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Spectral confirmation tiers - calibrated to observed 85-98% range.
 function confirmationTier(spectralSimilarity) {
@@ -117,6 +145,8 @@ function confirmationTier(spectralSimilarity) {
 function provenanceChip(raw) {
   if (!raw) return { text: "UNKNOWN", cls: "prov-unknown" };
   if (raw === "REAL_SATELLITE") return { text: "REAL SATELLITE DATA", cls: "prov-real" };
+  if (raw === "SYNTHETIC_DEMO_CHIP_VEG_MASKED_PIXEL_MEANS" || raw === "SYNTHETIC_DEMO_CHIP")
+    return { text: "SYNTHETIC DEMO DATA (simulated chip)", cls: "prov-demo" };
   if (raw.indexOf("SYNTHETIC") !== -1)
     return { text: "SYNTHETIC DEMO DATA (schema-faithful spectra)", cls: "prov-demo" };
   if (raw === "REAL_SPATIAL_SYNTHETIC_SPECTRAL")
@@ -124,6 +154,59 @@ function provenanceChip(raw) {
   if (raw === "ZONE_LEVEL_SPECTRAL_UNAVAILABLE")
     return { text: "SPECTRAL DATA UNAVAILABLE FOR THIS ZONE", cls: "prov-unavail" };
   return { text: raw, cls: "prov-unknown" };
+}
+
+// Human-readable summary of the per-zone vegetation (NDVI) mask that ran
+// BEFORE the B04/B08/B11/B12 means were extracted.
+function vegetationMaskSummary(mask, demo = false) {
+  if (!mask) return "Vegetation mask: unavailable.";
+  if (mask.status === "APPLIED") {
+    const src = demo ? "SYNTHETIC_DEMO chip" : "Per-pixel chip";
+    if (!mask.scorable) {
+      return `${src}: ${mask.surface_coverage_pct}% exposed surface remains -- too little to score, spectral result suppressed (no misleading score emitted).`;
+    }
+    return (
+      `${src}: removed ${mask.vegetation_pixels_removed}/${mask.total_pixels} vegetated pixels ` +
+      `(NDVI > ${mask.ndvi_threshold}), excluded ${mask.water_pixels_excluded} water/shadow pixels ` +
+      `(NDVI < ${mask.ndvi_water_low_threshold ?? "-0.10"}), ` +
+      `${mask.valid_pixels_remaining} valid pixels remain (${mask.surface_coverage_pct}% coverage).`
+    );
+  }
+  return "Vegetation mask: not applied (no per-pixel Sentinel-2 data; unmasked synthetic vector used).";
+}
+
+// Full masking chain the demo mode highlights:
+// Total pixels -> vegetation removed -> usable surface pixels -> spectral
+// similarity -> final exploration priority.
+function vegetationChain(mask, z, demo = false) {
+  const id = $("zp-veg-chain");
+  if (!id) return;
+  if (!mask || mask.status !== "APPLIED") {
+    id.textContent = demo || vegDemoMode
+      ? "Chain unavailable: no pixel chip data."
+      : "Enable Synthetic Demo · Veg-Masked Spectral to view the masking chain.";
+    id.classList.toggle("veg-chain-strip-muted", true);
+    return;
+  }
+  id.classList.remove("veg-chain-strip-muted");
+  const total = fmt(mask.total_pixels, " px");
+  const removed = fmt(mask.vegetation_pixels_removed, " px");
+  const excludedWater = fmt(mask.water_pixels_excluded, " px");
+  const valid = fmt(mask.valid_pixels_remaining, " px");
+  const coverage = mask.surface_coverage_pct === null || mask.surface_coverage_pct === undefined
+    ? "--"
+    : `${mask.surface_coverage_pct}%`;
+  const spectral = mask.scorable
+    ? fmt(z.spectral_similarity, "%")
+    : "N/A";
+  const priority = (mask.scorable && z.priority) || "SPATIAL-ONLY";
+  id.innerHTML =
+    `<span>Total <b>${total}</b></span><i>→</i>` +
+    `<span>veg <b>−${removed}</b></span><i>→</i>` +
+    `<span>water <b>−${excludedWater}</b></span><i>→</i>` +
+    `<span>usable <b>${valid}</b> (${coverage})</span><i>→</i>` +
+    `<span>spectral <b>${spectral}</b></span><i>→</i>` +
+    `<span>priority <b>${priority}</b></span>`;
 }
 
 // Highlight the current step in the SPATIAL -> SPECTRAL -> FUSION -> VERIFY strip.
@@ -138,17 +221,18 @@ function updateBasemap() {
   if (!map) return;
   const basemaps = {
     dark: {
-      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      attribution: "&copy; OpenStreetMap &copy; CARTO",
-      subdomains: "abcd",
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      attribution: "&copy; OpenStreetMap contributors",
+      subdomains: "abc",
+      dark: true,
     },
     satellite: {
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      attribution: "Tiles &copy; Esri",
+      attribution: "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
     },
     terrain: {
       url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-      attribution: "Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap",
+      attribution: "&copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap",
       subdomains: "abc",
     },
   };
@@ -158,21 +242,33 @@ function updateBasemap() {
   baseMapLayer = L.tileLayer(basemap.url, {
     attribution: basemap.attribution,
     maxZoom: 19,
-    subdomains: basemap.subdomains,
+    subdomains: basemap.subdomains || "abc",
   }).addTo(map);
-  map.getContainer().classList.toggle("map-night-theme", baseMapMode === "dark");
+  map.getContainer().classList.toggle("map-dark-mode", !!basemap.dark);
+  map.getContainer().classList.toggle("map-light-mode", !basemap.dark);
+  if (basemap.dark) baseMapLayer.bringToBack();
 }
 
-function closeZonePanel(event) {
+function closeZonePanel(event, keepOverlay = false) {
   if (event) {
     event.preventDefault();
     event.stopPropagation();
   }
   const panel = $("zone-panel");
   if (!panel) return;
+  // Accessibility: focus must never be marooned inside a subtree that is
+  // about to become aria-hidden. Park it on the map container first.
+  if (panel.contains(document.activeElement)) {
+    const mapEl = document.getElementById("spatial-map");
+    const target = mapEl ? mapEl : document.body;
+    try { target.focus({ preventScroll: true }); } catch (_) { target.focus(); }
+  }
   panel.classList.remove("is-open");
   panel.setAttribute("aria-hidden", "true");
-  setWorkflowStep(1);
+  if (!keepOverlay) {
+    removeSurfaceOverlay();
+    setWorkflowStep(1);
+  }
 }
 
 // ---------------- MAP INIT ----------------
@@ -191,6 +287,9 @@ function initMap(center) {
     );
     mapInstance = map;
     updateBasemap();
+    map.invalidateSize();
+    setTimeout(() => map.invalidateSize(), 400);
+    window.addEventListener("resize", () => map.invalidateSize());
 
     const basemapControl = $("map-basemap-mode");
     if (basemapControl) {
@@ -203,24 +302,20 @@ function initMap(center) {
     const closeBtn = $("zone-panel-close");
     if (closeBtn) closeBtn.addEventListener("click", closeZonePanel);
 
+    const surfaceBtn = $("btn-surface-filter");
+    if (surfaceBtn) surfaceBtn.addEventListener("click", () => runSurfaceFilter());
+
+    const rawViewBtn = $("btn-surface-raw");
+    if (rawViewBtn) rawViewBtn.addEventListener("click", () => applySurfaceView("raw"));
+    const filteredViewBtn = $("btn-surface-filtered");
+    if (filteredViewBtn) filteredViewBtn.addEventListener("click", () => applySurfaceView("filtered"));
+
     layers.spatial   = L.layerGroup().addTo(map);
     layers.spectral  = L.layerGroup().addTo(map);
     layers.telemetry = L.layerGroup().addTo(map);
     layers.aoi       = L.layerGroup().addTo(map);
 
-    const bind = (id, layer) => {
-      const control = $(id);
-      if (!control) return;
-      const setActiveState = () => {
-        map.getContainer().classList.toggle("spectral-overlay-active", control.checked);
-      };
-      setActiveState();
-      control.addEventListener("change", (e) => {
-        if (e.target.checked) map.addLayer(layer); else map.removeLayer(layer);
-        setActiveState();
-      });
-    };
-    bind("toggle-space-layer", layers.spectral);
+    initScreeningToggle();
   } catch (_) {
     el.textContent = "Map could not be initialised.";
   }
@@ -240,90 +335,564 @@ async function loadAOI() {
 }
 
 // ---------------- ZONES ----------------
-async function loadZones() {
+async function loadZones(demo = false) {
   if (!map) return;
-  const r = await fetch("/api/zones");
+  const query = demo ? "?veg_demo=1" : "";
+  const r = await fetch("/api/zones" + query);
   const data = await r.json();
   layers.spatial.clearLayers();
   layers.spectral.clearLayers();
+  haloMarkers = [];
+  screeningActive = false;
+  zonesCache = data.zones;
+  zoneMarkers = {};
 
   data.zones.forEach((z) => {
-    const spatialColor = priorityColor(z.spatial_priority_band);
-    const tier = confirmationTier(z.spectral_similarity);
+    const lat = z.latitude;
+    const lon = z.longitude;
+    const st = priorityStyle(z.spatial_priority_band);
 
-    // SPATIAL: base pin
-    const pin = L.circleMarker([z.latitude, z.longitude], {
-      radius: 11, color: "#0B0E14", weight: 2,
-      fillColor: spatialColor, fillOpacity: 0.95,
+    // Soft expanding halo ring behind the orb (subtle pulse).
+    L.marker([lat, lon], {
+      icon: L.divIcon({
+        className: "zone-ring-icon",
+        html: `<div class="zone-ring" style="width:60px;height:60px;"></div>`,
+        iconSize: [60, 60],
+        iconAnchor: [30, 30],
+      }),
+      interactive: false,
+    }).addTo(layers.spatial);
+
+    // Translucent glowing orb marker.
+    const orb = L.marker([lat, lon], {
+      icon: L.divIcon({
+        className: "zone-orb-icon",
+        html: `<div class="zone-orb" style="width:22px;height:22px;"></div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      }),
+      riseOnHover: true,
     });
-    pin.bindTooltip(
+    orb.on("add", () => {
+      const el = orb.getElement();
+      if (!el) return;
+      const core = el.querySelector(".zone-orb");
+      if (!core) return;
+      core.style.setProperty("--zone-color", st.color);
+      core.style.setProperty("--zone-glow", st.glow);
+      core.title = z.name;
+    });
+    const vegLine = demo && z.vegetation_mask && z.vegetation_mask.status === "APPLIED"
+      ? `<br>Veg −${z.vegetation_mask.vegetation_pixels_removed} · water −${z.vegetation_mask.water_pixels_excluded} · usable ${z.vegetation_mask.valid_pixels_remaining} px (${z.vegetation_mask.surface_coverage_pct}%)`
+      : "";
+    orb.bindTooltip(
       `<b>${z.name}</b><br>` +
       `Spatial: <b>${z.spatial_score}%</b> (${z.spatial_priority_band})<br>` +
       `Spectral: <b>${fmt(z.spectral_similarity, "%")}</b><br>` +
       `Fusion: <b>${z.final_exploration_score}%</b> → ${z.priority}<br>` +
+      vegLine +
       `<i>Click for full intel</i>`,
-      { direction: "top", offset: [0, -8] }
+      { direction: "top", offset: [0, -12] }
     );
-    pin.on("click", () => showZoneDetail(z.zone_id));
-    pin.addTo(layers.spatial);
+    orb.on("click", () => onZoneSelect(z));
+    orb.addTo(layers.spatial);
 
-    // SPECTRAL: confirmation ring
-    const ringStyle = {
-      radius: 22, color: tier.color, weight: 3,
-      fillColor: tier.color, fillOpacity: 0.08, opacity: 0.95,
-    };
-    if (tier.dash) ringStyle.dashArray = tier.dash;
-
-    const ring = L.circleMarker([z.latitude, z.longitude], ringStyle);
-    ring.on("add", () => {
-      const el = ring.getElement();
-      if (!el) return;
-      el.classList.add("spectral-ring-vibration");
-      if (tier.pulse) el.classList.add("spectral-ring-pulse");
-    });
-    ring.on("click", () => showZoneDetail(z.zone_id));
-    ring.addTo(layers.spectral);
-
-    if (z.spectral_similarity !== null && z.spectral_similarity !== undefined) {
-      [0, 1].forEach((rippleIndex) => {
-        const ripple = L.circleMarker([z.latitude, z.longitude], {
-          radius: 22, color: tier.color, weight: 2,
-          fillOpacity: 0, opacity: 0, interactive: false,
-        });
-        ripple.on("add", () => {
-          const el = ripple.getElement();
-          if (!el) return;
-          el.classList.add("spectral-ripple");
-          el.style.setProperty("--ripple-delay", `${rippleIndex * 0.55}s`);
-        });
-        ripple.addTo(layers.spectral);
-      });
-    }
-
-    // SPECTRAL: floating badge above pin
-    const badgeHtml = `
-      <div class="spectral-badge" style="border-color:${tier.color};color:${tier.color};">
-        <span class="spectral-badge-pct">${fmt(z.spectral_similarity, "%")}</span>
-        <span class="spectral-badge-label">${tier.label}</span>
-      </div>`;
-    L.marker([z.latitude, z.longitude], {
-      icon: L.divIcon({
-        className: "spectral-badge-icon", html: badgeHtml,
-        iconSize: [90, 32], iconAnchor: [45, 52],
-      }),
-      interactive: false,
-    }).addTo(layers.spectral);
+    zoneMarkers[z.zone_id] = { orb, st };
   });
 
-  // Fresh load = we've completed step 1 (spatial candidates identified)
+  // Fresh load = spatial candidates identified.
+  setWorkflowStep(1);
+}
+
+// Cinematic focus: smooth zoom into the zone and highlight its marker.
+function focusZone(z) {
+  try { map.flyTo([z.latitude, z.longitude], 18, { duration: 1.6 }); } catch (e) {}
+  Object.entries(zoneMarkers).forEach(([id, m]) => {
+    const core = m.orb.getElement() && m.orb.getElement().querySelector(".zone-orb");
+    if (core) {
+      core.classList.toggle("zone-selected", id === z.zone_id);
+      core.classList.toggle("zone-dimmable", id !== z.zone_id);
+    }
+  });
+  setWorkflowStep(1);
+}
+
+function onZoneSelect(z) {
+  // Capture the ACTUAL zone_id the instant the pin is clicked, before any
+  // async detail fetch. The NDVI button always sends exactly this id.
+  activeZoneId = z.zone_id || null;
+  const btn = $("btn-surface-filter");
+  if (btn) btn.dataset.zoneId = activeZoneId || "";
+  focusZone(z);
+  showZoneDetail(z.zone_id);
+}
+
+// ---------------- ON-MAP SYNTHETIC SURFACE (zoomed satellite view) ----------------
+function surfaceCanvasDataURL() {
+  const canvas = $("zp-surface-canvas");
+  if (!canvas) return null;
+  try { return canvas.toDataURL("image/png"); } catch (e) { return null; }
+}
+
+function mountSurfaceOverlay(z) {
+  if (!map || !surfaceChip) return;
+  removeSurfaceOverlay();
+  const url = surfaceCanvasDataURL();
+  if (!url) return;
+  const bounds = [
+    [z.latitude - 0.0012, z.longitude - 0.0012],
+    [z.latitude + 0.0012, z.longitude + 0.0012],
+  ];
+  surfaceOverlay = L.imageOverlay(url, bounds, {
+    opacity: 0.92, interactive: false, className: "zone-surface-overlay",
+  }).addTo(map);
+  surfaceOverlayFrame = L.rectangle(bounds, {
+    color: "#38BDF8", weight: 1, dashArray: "6 4",
+    fill: false, interactive: false, opacity: 0.7,
+  }).addTo(map);
+}
+
+function updateSurfaceOverlayFromCanvas() {
+  if (!surfaceOverlay) return;
+  const url = surfaceCanvasDataURL();
+  if (url) surfaceOverlay.setUrl(url);
+}
+
+function removeSurfaceOverlay() {
+  if (!map) return;
+  if (surfaceOverlay) { map.removeLayer(surfaceOverlay); surfaceOverlay = null; }
+  if (surfaceOverlayFrame) { map.removeLayer(surfaceOverlayFrame); surfaceOverlayFrame = null; }
+}
+
+// ----------------- SURFACE FILTER (SYNTHETIC DEMO) -----------------
+function cellColor(cls, cleared, jitter) {
+  if (cls === "water") {
+    return cleared ? "rgba(56, 189, 248, 0.28)" : "rgba(34, 144, 214, 0.85)";
+  }
+  if (cls === "vegetation") {
+    return cleared ? "rgba(9, 17, 29, 0.95)" : "rgba(34, 197, 94, 0.8)";
+  }
+  // exposed ore/soil/rock - dry warm palette with subtle texture
+  const base = cleared ? [185, 160, 118] : [142, 112, 68];
+  const j = (jitter % 3) - 1;
+  const sh = Math.round(6 * j);
+  return `rgba(${base[0] + sh}, ${base[1] + sh}, ${base[2] + sh}, 0.95)`;
+}
+
+function redrawSurface(scanYOrNull) {
+  const canvas = $("zp-surface-canvas");
+  if (!canvas || !surfaceChip) return;
+  const { classes, size } = surfaceChip;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const px = canvas.width / size;
+  const py = canvas.height / size;
+  const active = surfaceMode === "filtered";
+  ctx.fillStyle = "#060B14";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < size; i++) {
+    for (let j = 0; j < size; j++) {
+      const cls = classes[i * size + j] || "exposed";
+      const y = (i + 0.5) * py;
+      const cleared = active && (scanYOrNull === null || y > scanYOrNull);
+      // scan-band tint just behind the sweep line
+      const isBand = scanYOrNull !== null && scanYOrNull !== undefined &&
+        y > scanYOrNull - 10 && y < scanYOrNull + 1;
+      ctx.fillStyle = cellColor(cls, cleared, (i * 7 + j * 13) % 3);
+      ctx.fillRect(j * px + 1, i * py + 1, px - 2, py - 2);
+      if (isBand && active) {
+        ctx.fillStyle = "rgba(56, 189, 248, 0.22)";
+        ctx.fillRect(j * px, i * py, px, py);
+      }
+    }
+  }
+}
+
+function surfaceStatsFrom(mask) {
+  $("zp-veg-pct").textContent = "--";
+  $("zp-usable-pct").textContent = "--";
+  $("zp-pixels").textContent = "--";
+  if (!mask) return;
+  const total = mask.total_pixels || 0;
+  const veg = mask.vegetation_pixels_removed || 0;
+  const pct = mask.surface_coverage_pct === null || mask.surface_coverage_pct === undefined
+    ? 0 : mask.surface_coverage_pct;
+  $("zp-veg-pct").textContent = total ? `${Math.round((veg / total) * 100)}%` : "--";
+  $("zp-usable-pct").textContent = fmt(pct, "%");
+  $("zp-pixels").textContent = fmt(total, " px");
+}
+
+function showNdviStats(chip) {
+  const el = $("zp-ndvi-stats");
+  if (!el) return;
+  const s = chip && chip.mask && chip.mask.ndvi_statistics;
+  el.innerHTML = s
+    ? `<span class="ndvi-kicker">NDVI</span>` +
+      `mean <b>${s.mean}</b> · median <b>${s.median}</b> · min <b>${s.min}</b> · max <b>${s.max}</b>`
+    : `NDVI mean / median / min / max appear after the scan`;
+}
+
+function setViewToggle(mode) {
+  ["raw", "filtered"].forEach((m) => {
+    const el = m === "raw" ? $("btn-surface-raw") : $("btn-surface-filtered");
+    if (!el) return;
+    el.classList.toggle("active", surfaceMode === m);
+    el.setAttribute("aria-pressed", surfaceMode === m ? "true" : "false");
+  });
+}
+
+function compactSurfaceResult(mask) {
+  const total = mask.total_pixels || 0;
+  const veg = mask.vegetation_pixels_removed || 0;
+  const vegPct = total ? Math.round((veg / total) * 100) : 0;
+  const usable = (mask.surface_coverage_pct === null || mask.surface_coverage_pct === undefined)
+    ? 0 : mask.surface_coverage_pct;
+  const tail = mask.scorable ? "READY FOR SPECTRAL ANALYSIS" : "SPECTRAL SCORE WITHHELD";
+  return `Vegetation removed: ${vegPct}% | Usable surface: ${fmt(usable, "%")} | Pixels analysed: ${fmt(total, "")} | ${tail}`;
+}
+
+function applySurfaceView(mode) {
+  if (!surfaceChip || surfaceScanning || !$("zp-surface-canvas")) return;
+  surfaceMode = mode;
+  redrawSurface(null);
+  updateSurfaceOverlayFromCanvas();
+  setViewToggle(mode);
+  const mask = surfaceChip.mask || {};
+  const state = $("zp-surface-state");
+  const status = $("zp-surface-status");
+  if (surfaceMode === "filtered") {
+    if (state) {
+      state.textContent = mask.scorable ? "SURFACE FILTERED" : "SURFACE SUPPRESSED";
+      state.className = "surface-state " + (mask.scorable ? "sf-filtered" : "sf-suppressed");
+    }
+    if (status) {
+      status.textContent = compactSurfaceResult(mask);
+      status.className = mask.scorable ? "sf-ready" : "sf-suppressed";
+    }
+  } else {
+    if (state) { state.textContent = "RAW SURFACE"; state.className = "surface-state"; }
+    if (status) {
+      status.textContent = "Not screened — activate the NDVI Surface Filter";
+      status.className = "";
+    }
+  }
+}
+
+async function runSurfaceFilter() {
+  const btn = $("btn-surface-filter");
+  const rawBtn = $("btn-surface-raw");
+  const filtBtn = $("btn-surface-filtered");
+  const state = $("zp-surface-state");
+  const status = $("zp-surface-status");
+  if (surfaceScanning) return;
+
+  // The zone id is captured on the pin click (activeZoneId / btn.dataset).
+  // activeZone (async detail payload) is only a fallback, never the primary
+  // source, so the request always carries the exact clicked-pin id.
+  const zoneId = activeZoneId
+    || (btn && btn.dataset.zoneId) || null
+    || (activeZone && activeZone.zone_id) || null;
+  if (!zoneId) {
+    setStatus("Select a zone first, then run the NDVI surface filter.", "warn");
+    if (state) { state.textContent = "FALLBACK"; state.className = "surface-state sf-suppressed"; }
+    return;
+  }
+  if (btn) btn.disabled = true;
+  surfaceScanning = true;
+  if (state) { state.textContent = "SCANNING…"; state.className = "surface-state sf-scanning"; }
+  if (status) { status.textContent = "Requesting NDVI pipeline…"; status.className = ""; }
+
+  // The click handler calls the backend NDVI pipeline directly (real XHR,
+  // visible in DevTools Network). The UI only renders what the server returned.
+  try {
+    const resp = await fetch("/api/ndvi/filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ zone_id: zoneId }),
+    });
+    if (!resp.ok) {
+      let message = `HTTP ${resp.status}`;
+      try {
+        const errorBody = await resp.json();
+        if (errorBody && errorBody.error) message = errorBody.error;
+      } catch (_) {}
+      throw new Error(message);
+    }
+    const data = await resp.json();
+    if (!data || data.total_pixels === undefined || !Array.isArray(data.classes)) {
+      throw new Error("NDVI pipeline returned a malformed payload.");
+    }
+
+    // Adopt the server-computed chip + mask so every shown number reconciles
+    // with the generated pixel grid (never client-side invention).
+    surfaceMode = "filtered";
+    surfaceChip = {
+      classes: data.classes,
+      ndvi: data.ndvi || [],
+      size: data.chip_size || 20,
+      mask: {
+        status: data.status,
+        applied: data.applied,
+        total_pixels: data.total_pixels,
+        vegetation_pixels_removed: data.vegetation_pixels_removed,
+        water_pixels_excluded: data.water_pixels_excluded,
+        valid_pixels_remaining: data.valid_pixels_remaining,
+        surface_coverage_pct: data.surface_coverage_pct,
+        ndvi_threshold: data.ndvi_threshold,
+        ndvi_statistics: data.ndvi_statistics,
+        scorable: data.scorable,
+        reason: data.reason,
+      },
+    };
+    showNdviStats(surfaceChip);
+
+    // Success → hide the info card, fly into the pin and sweep the cleared
+    // synthetic surface across the map.
+    closeZonePanel(undefined, true);
+    const zoneRef = (activeZone && activeZone.zone_id === zoneId)
+      ? activeZone
+      : (zonesCache.find((zc) => zc.zone_id === zoneId)) || null;
+    if (map && zoneRef) {
+      try { map.flyTo([zoneRef.latitude, zoneRef.longitude], 18.5, { duration: 1.8 }); }
+      catch (e) {}
+    }
+
+    redrawSurface(0);
+    if (!surfaceOverlay && zoneRef) mountSurfaceOverlay(zoneRef);
+    updateSurfaceOverlayFromCanvas();
+
+    const canvas = $("zp-surface-canvas");
+    const height = canvas ? canvas.height : 200;
+    const t0 = performance.now();
+    const dur = 1500;
+    await new Promise((resolve) => {
+      const step = (now) => {
+        const f = Math.min(1, (now - t0) / dur);
+        redrawSurface(f * height);
+        updateSurfaceOverlayFromCanvas();
+        if (f < 1) requestAnimationFrame(step); else resolve();
+      };
+      requestAnimationFrame(step);
+    });
+
+    redrawSurface(null);
+    updateSurfaceOverlayFromCanvas();
+    const mask = surfaceChip.mask;
+    surfaceStatsFrom(mask);
+    if (state) {
+      state.textContent = mask.scorable ? "SURFACE FILTERED" : "SURFACE SUPPRESSED";
+      state.className = "surface-state " + (mask.scorable ? "sf-filtered" : "sf-suppressed");
+    }
+    if (status) {
+      status.textContent = compactSurfaceResult(mask);
+      status.className = mask.scorable ? "sf-ready" : "sf-suppressed";
+    }
+    setViewToggle("filtered");
+    setWorkflowStep(mask.scorable ? 2 : 1);
+    setStatus(
+      `NDVI complete (${data.mode}): vegetation −${mask.vegetation_pixels_removed} px (${data.vegetation_pct}%) → usable ${fmt(mask.surface_coverage_pct, "%")}`,
+      "ok"
+    );
+  } catch (err) {
+    console.error("NDVI surface filter failed:", err);
+    const message = (err && err.message) ? err.message : "unknown error";
+    if (status) {
+      status.textContent = `NDVI FAILED — ${message}`;
+      status.className = "sf-suppressed";
+    }
+    if (state) { state.textContent = "FAILED"; state.className = "surface-state sf-suppressed"; }
+    setStatus(`NDVI surface filter failed: ${message}`, "error");
+  } finally {
+    surfaceScanning = false;
+    if (btn) btn.disabled = false;
+    [rawBtn, filtBtn].forEach((b) => { if (b) b.disabled = false; });
+  }
+}
+
+// ----------------- SPECTRAL SCREENING REVEAL -----------------
+function initScreeningToggle() {
+  const toggle = $("toggle-space-layer");
+  if (!toggle) return;
+  toggle.checked = false;
+  toggle.addEventListener("change", () => {
+    if (toggle.checked && !screeningActive) {
+      runScreeningReveal();
+    } else if (!toggle.checked) {
+      if (screeningActive) dissolveScreening();
+      else cancelReveal();
+    }
+  });
+}
+
+function sweepMap(direction) {
+  const mapEl = $("spatial-map");
+  if (!mapEl) return;
+  let scan = $("scan-wave");
+  if (!scan) {
+    scan = document.createElement("div");
+    scan.id = "scan-wave";
+    scan.className = "scan-wave";
+    mapEl.appendChild(scan);
+  }
+  scan.classList.remove("scan-reveal", "scan-retreat");
+  void scan.offsetWidth; // restart the animation
+  scan.classList.add(direction === "in" ? "scan-reveal" : "scan-retreat");
+}
+
+function scanTint(on) {
+  const mapEl = $("spatial-map");
+  if (!mapEl) return;
+  let tint = $("scan-tint");
+  if (!tint) {
+    tint = document.createElement("div");
+    tint.id = "scan-tint";
+    tint.className = "scan-tint";
+    mapEl.appendChild(tint);
+  }
+  if (on) {
+    tint.hidden = false;
+    requestAnimationFrame(() => tint.classList.add("tint-on"));
+  } else {
+    tint.classList.remove("tint-on");
+    setTimeout(() => { tint.hidden = true; }, 800);
+  }
+}
+
+// Beautiful translucent spectral layer that stays on the map while the
+// screening layer is active (soft fade-in vignette + slow aurora shimmer).
+function spectralGlow(on) {
+  const mapEl = $("spatial-map");
+  if (!mapEl) return;
+  let g = $("spectral-glow");
+  if (!g) {
+    g = document.createElement("div");
+    g.id = "spectral-glow";
+    g.className = "spectral-glow";
+    mapEl.appendChild(g);
+  }
+  if (on) {
+    g.hidden = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => g.classList.add("glow-on")));
+  } else {
+    g.classList.remove("glow-on");
+    setTimeout(() => { g.hidden = true; }, 1350);
+  }
+}
+
+function cancelReveal() {
+  revealStopToken++;
+  scanTint(false);
+  spectralGlow(false);
+  haloMarkers.forEach((m) => {
+    const el = m.getElement && m.getElement();
+    const halo = el && el.querySelector(".energy-halo");
+    if (halo) halo.classList.add("halo-out");
+  });
+  setTimeout(() => {
+    layers.spectral.clearLayers();
+    haloMarkers = [];
+  }, 150);
+}
+
+async function runScreeningReveal() {
+  const toggle = $("toggle-space-layer");
+  if (!toggle || !map) return;
+  const token = ++revealStopToken;
+  // The translucent spectral layer fades in straight away so the map visibly
+  // transforms the moment the toggle turns on (before the sweep passes).
+  scanTint(true);
+  spectralGlow(true);
+  sweepMap("in");
+  setStatus("Spectral screening: orbit scan sweep underway…", "info");
+  // Halos pop in as the sweep wave passes each zone (sequential reveal).
+  await delay(1200);
+  if (token !== revealStopToken || !toggle.checked) { scanTint(false); return; }
+
+  const ranked = zonesCache
+    .filter((z) => z.spectral_similarity !== null && z.spectral_similarity !== undefined)
+    .sort((a, b) => b.spectral_similarity - a.spectral_similarity);
+
+  for (const z of ranked) {
+    if (token !== revealStopToken || !toggle.checked) { scanTint(false); return; }
+    addEnergyHalo(z);
+    await delay(430);
+  }
+  if (token !== revealStopToken) { scanTint(false); return; }
+  screeningActive = true;
+  scanTint(false);
+  setStatus("Spectral screening complete: energy halos show zone-level similarity to Pyrolusite.", "ok");
+  setWorkflowStep(2);
+}
+
+function addEnergyHalo(z) {
+  const st = priorityStyle(z.spatial_priority_band);
+  const radius = 48 + Math.round((z.spectral_similarity / 100) * 56); // 48..104 px
+  const haloSize = radius * 2;
+  const coreSize = Math.round(haloSize * 0.34);
+  const icon = L.divIcon({
+    className: "energy-halo-icon",
+    html:
+      `<div class="energy-halo" style="width:${haloSize}px;height:${haloSize}px;">` +
+      `<div class="energy-halo-core" style="width:${coreSize}px;height:${coreSize}px;"></div>` +
+      `</div>` +
+      `<div class="halo-label">` +
+      `<span class="halo-kicker">Spectral Similarity</span>` +
+      `<span class="halo-sim">${fmt(z.spectral_similarity, "%")}</span>` +
+      `<span class="halo-mineral">Pyrolusite</span>` +
+      `</div>`,
+    iconSize: [haloSize, haloSize],
+    iconAnchor: [radius, radius],
+  });
+  const m = L.marker([z.latitude, z.longitude], { icon, interactive: false, keyboard: false });
+  m.on("add", () => {
+    const el = m.getElement();
+    if (!el) return;
+    el.style.setProperty("--halo-color", st.color);
+    el.style.setProperty("--halo-glow", st.glow);
+    const halo = el.querySelector(".energy-halo");
+    const core = el.querySelector(".energy-halo-core");
+    const lbl = el.querySelector(".halo-label");
+    if (!halo) return;
+    requestAnimationFrame(() => {
+      halo.classList.add("halo-in");
+      if (core) core.classList.add("halo-core-in");
+      if (lbl) lbl.classList.add("halo-label-in");
+    });
+  });
+  m.addTo(layers.spectral);
+  haloMarkers.push(m);
+}
+
+async function dissolveScreening() {
+  const token = ++revealStopToken;
+  scanTint(false);
+  spectralGlow(false);
+  haloMarkers.forEach((m) => {
+    const el = m.getElement && m.getElement();
+    const halo = el && el.querySelector(".energy-halo");
+    if (halo) { halo.classList.remove("halo-in"); halo.classList.add("halo-out"); }
+    const core = el && el.querySelector(".energy-halo-core");
+    if (core) core.classList.remove("halo-core-in");
+    const lbl = el && el.querySelector(".halo-label");
+    if (lbl) lbl.classList.remove("halo-label-in");
+  });
+  sweepMap("out");
+  setStatus("Spectral screening off: halos dissolving, clean spatial map restored.", "info");
+  await delay(1250);
+  layers.spectral.clearLayers();
+  haloMarkers = [];
+  screeningActive = false;
   setWorkflowStep(1);
 }
 
 // ---------------- ZONE DETAIL ----------------
 async function showZoneDetail(zoneId) {
-  const r = await fetch(`/api/zones/${zoneId}`);
+  // The surface-filter inspector always runs over the clearly-labelled
+  // SYNTHETIC_DEMO chip so its numbers reconcile with the rendered canvas.
+  const r = await fetch(`/api/zones/${zoneId}?veg_demo=1`);
   if (!r.ok) return;
   const z = await r.json();
+  activeZone = z;
   const tier = confirmationTier(z.spectral_similarity);
   const panel = $("zone-panel");
   if (!panel) return;
@@ -363,7 +932,7 @@ async function showZoneDetail(zoneId) {
     $("zp-spectral").textContent = "N/A";
     $("zp-spectral-band").textContent = "UNAVAILABLE";
     $("zp-spectral-band").style.color = "#64748B";
-    $("zp-best-mineral").textContent = "";
+    $("zp-best-mineral").textContent = "Best Mineral Match: unavailable";
   } else {
     const bestName = z.best_mineral_match
       ? z.best_mineral_match.charAt(0).toUpperCase() + z.best_mineral_match.slice(1)
@@ -371,12 +940,14 @@ async function showZoneDetail(zoneId) {
     $("zp-spectral").textContent = fmt(z.spectral_similarity, "%");
     $("zp-spectral-band").textContent = tier.label;
     $("zp-spectral-band").style.color = tier.color;
-    $("zp-best-mineral").textContent = `Best match: ${bestName}`;
+    $("zp-best-mineral").textContent = `Best Mineral Match: ${bestName}`;
   }
 
-  $("zp-spectral-scene").textContent = scene
+  const sceneTxt = scene
     ? `${scene.platform} · ${scene.date} · ${scene.scene_id}`
     : "Sentinel-2 scene metadata unavailable";
+  $("zp-spectral-scene").textContent =
+    `SYNTHETIC DEMO chip · ${z.demo_chip ? `${z.demo_chip.total_pixels} px · seed ${z.demo_chip.seed}` : "no chip meta"} · not a real scene`;
 
   $("zp-final").textContent = fmt(z.final_exploration_score, "%");
   $("zp-priority").textContent = z.priority;
@@ -388,7 +959,7 @@ async function showZoneDetail(zoneId) {
 
   // WHY / ACTION
   $("zp-explanation").textContent = z.explanation;
-  $("zp-action").textContent = z.recommended_action;
+  $("zp-action").textContent = "Recommended Action: " + (z.recommended_action || "Field sampling / assay verification");
 
   // PROVENANCE
   const prov = provenanceChip(z.data_provenance);
@@ -397,11 +968,50 @@ async function showZoneDetail(zoneId) {
   provEl.className = "provenance-chip " + prov.cls;
   $("zp-scientific-note").textContent = z.scientific_note;
 
+  // VEGETATION (NDVI) MASK STATUS
+  $("zp-veg-mask").textContent = vegetationMaskSummary(z.vegetation_mask, true);
+  vegetationChain(z.vegetation_mask, z, true);
+
+  // SYNTHETIC SURFACE RENDERER (RAW SURFACE)
+  surfaceMode = "raw";
+  surfaceChip = z.demo_chip
+    ? {
+        classes: z.demo_chip.classes || [],
+        ndvi: z.demo_chip.ndvi || [],
+        size: z.demo_chip.chip_size || 20,
+        mask: z.vegetation_mask || {},
+      }
+    : null;
+  if (surfaceChip && $("zp-surface-canvas")) {
+    redrawSurface(null);
+    surfaceStatsFrom(surfaceChip.mask);
+    showNdviStats(surfaceChip);
+    const state = $("zp-surface-state");
+    const status = $("zp-surface-status");
+    const btn = $("btn-surface-filter");
+    const rawBtn = $("btn-surface-raw");
+    const filtBtn = $("btn-surface-filtered");
+    if (state) { state.textContent = "RAW SURFACE"; state.className = "surface-state"; }
+    if (status) {
+      if (!surfaceChip.mask.scorable && surfaceChip.mask.status === "APPLIED") {
+        status.textContent = "Heavily vegetated — surface filter will be suppressed after NDVI";
+        status.className = "sf-suppressed";
+      } else {
+        status.textContent = "Not screened — activate the NDVI Surface Filter";
+        status.className = "";
+      }
+    }
+    if (btn) btn.disabled = false;
+    if (rawBtn) rawBtn.disabled = false;
+    if (filtBtn) filtBtn.disabled = false;
+    setViewToggle("raw");
+  }
+  // Show the synthetic satellite-like surface on the map at zoom.
+  mountSurfaceOverlay(z);
+
   // Advance workflow strip: 1 spatial done, 2 spectral rendered, 3 fusion computed.
   // 4 (Field Verification) only lights up when HIGH priority.
   setWorkflowStep(z.priority === "HIGH" ? 4 : 3);
-
-  try { map.setView([z.latitude, z.longitude], 16, { animate: true }); } catch (e) {}
 }
 
 // Renders four horizontal bars per band, showing the zone reflectance vs pyrolusite reference.
@@ -1094,7 +1704,7 @@ function bindControls() {
 async function init() {
   updateControlBadges(getControls());
   await Promise.allSettled([loadTelemetry(), loadSpectral()]);
-  await Promise.allSettled([loadAOI(), loadZones()]);
+  await Promise.allSettled([loadAOI(), loadZones(true)]);
   await refreshAll();
 }
 

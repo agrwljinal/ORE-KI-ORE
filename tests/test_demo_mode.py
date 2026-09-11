@@ -1,0 +1,89 @@
+"""Route-level tests for the SYNTHETIC_DEMO vegetation-masking demo mode."""
+
+import unittest
+
+from app import app
+
+
+class VegDemoModeRouteTests(unittest.TestCase):
+    def setUp(self):
+        app.config["TESTING"] = True
+        self.client = app.test_client()
+
+    def test_default_zones_are_unmasked_and_honest(self):
+        body = self.client.get("/api/zones").get_json()
+
+        self.assertFalse(body["demo_mode"])
+        for zone in body["zones"]:
+            self.assertEqual(zone["vegetation_mask"]["status"], "NO_PIXEL_DATA")
+            self.assertFalse(zone["vegetation_mask"]["applied"])
+            self.assertIsNone(zone.get("demo_chip"))
+            self.assertIn("SYNTHETIC", zone["zone_reflectance_provenance"])
+
+    def test_demo_zones_apply_mask_and_report_chain(self):
+        body = self.client.get("/api/zones?veg_demo=1").get_json()
+
+        self.assertTrue(body["demo_mode"])
+        self.assertEqual(body["dataset"], "SYNTHETIC_DEMO")
+        for zone in body["zones"]:
+            mask = zone["vegetation_mask"]
+            chip = zone["demo_chip"]
+            self.assertEqual(mask["status"], "APPLIED")
+            self.assertEqual(
+                zone["zone_reflectance_provenance"],
+                "SYNTHETIC_DEMO_CHIP_VEG_MASKED_PIXEL_MEANS",
+            )
+            # The visible chain: total -> removed rows -> usable -> spectral -> priority
+            self.assertEqual(mask["total_pixels"], chip["total_pixels"])
+            self.assertEqual(
+                mask["valid_pixels_remaining"],
+                mask["total_pixels"]
+                - mask["vegetation_pixels_removed"]
+                - mask["water_pixels_excluded"],
+            )
+            # The chip class labels reconcile EXACTLY with the mask accounting,
+            # so the client-side surface renderer matches the backend numbers.
+            veg = sum(1 for cls in chip["classes"] if cls == "vegetation")
+            water = sum(1 for cls in chip["classes"] if cls == "water")
+            exposed = sum(1 for cls in chip["classes"] if cls == "exposed")
+            self.assertEqual(mask["vegetation_pixels_removed"], veg)
+            self.assertEqual(mask["water_pixels_excluded"], water)
+            self.assertEqual(mask["valid_pixels_remaining"], exposed)
+            if mask["scorable"]:
+                self.assertIsNotNone(zone["spectral_similarity"])
+            else:
+                self.assertIsNone(zone["spectral_similarity"])  # no misleading score
+
+    def test_zone_c_heavily_vegetated_is_suppressed(self):
+        body = self.client.get("/api/zones?veg_demo=1").get_json()
+        zone = next(z for z in body["zones"] if z["zone_id"] == "ZONE_C")
+
+        self.assertFalse(zone["vegetation_mask"]["scorable"])
+        self.assertIsNone(zone["spectral_similarity"])
+        self.assertEqual(zone["final_exploration_score"], zone["spatial_score"])
+
+    def test_demo_mode_never_pretends_to_be_real_satellite(self):
+        body = self.client.get("/api/zones?veg_demo=1").get_json()
+
+        self.assertTrue(all(z["data_source"]["dataset"] == "SYNTHETIC_DEMO" for z in body["zones"]))
+        self.assertIn("NOT a real Sentinel-2 observation", body["zones"][0]["data_source"]["note"])
+
+    def test_detail_endpoint_honors_demo_flag(self):
+        plain = self.client.get("/api/zones/ZONE_A").get_json()
+        demo = self.client.get("/api/zones/ZONE_A?veg_demo=1").get_json()
+
+        self.assertEqual(plain["vegetation_mask"]["status"], "NO_PIXEL_DATA")
+        self.assertEqual(demo["vegetation_mask"]["status"], "APPLIED")
+        self.assertEqual(demo["demo_chip"]["dataset"], "SYNTHETIC_DEMO")
+        self.assertEqual(demo["demo_chip"]["total_pixels"], 400)
+
+    def test_aoi_level_result_stays_aoi_level_prototype(self):
+        body = self.client.get("/api/spectral").get_json()
+
+        self.assertAlmostEqual(body["similarity_pct"], 97.84, places=2)
+        self.assertEqual(body["vegetation_mask"]["level"], "AOI_LEVEL_PROTOTYPE")
+        self.assertNotIn("demo_chip", body)
+
+
+if __name__ == "__main__":
+    unittest.main()

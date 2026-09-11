@@ -503,6 +503,11 @@ def add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    # Keep the HTML + our own JS/CSS cache-free so the app always runs the
+    # latest build (stale script.js has repeatedly masked deployed changes).
+    if request.path.startswith("/static/") or request.path == "/":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
@@ -735,6 +740,7 @@ def get_spectral():
         "wavelengths_um": aoi.get("wavelengths_um") or {},
         "live_reflectance": aoi.get("live_reflectance") or {},
         "reference_reflectance": aoi.get("reference_reflectance") or {},
+        "vegetation_mask": aoi.get("vegetation_mask"),
         "overlap_points": aoi.get("overlap_points"),
         "reference_source": "USGS Digital Spectral Library (splib05a) - Pyrolusite",
         "compliance_note": "Prototype threshold - requires field/lab validation",
@@ -761,11 +767,50 @@ def _spectral_similarity_scorer(zone_reflectance, reference_reflectance):
     return spectral_module.spectral_match(zone_reflectance, reference_reflectance)["similarity"]
 
 
-def _evaluate_zone(zone_config):
-    """Compute the full per-zone spatial + spectral fusion result."""
+def _evaluate_zone(zone_config, use_demo_chip=False):
+    """Compute the full per-zone spatial + spectral fusion result.
+
+    When real per-pixel Sentinel-2 bands are available for a zone (via
+    spectral.ZONE_PIXEL_DATA_PROVIDER), the vegetation (NDVI) mask is applied
+    BEFORE the B04/B08/B11/B12 means are extracted and scored, and quality
+    information (total pixels, vegetation removed, valid remaining, surface
+    coverage %) is returned. If the mask leaves too few valid pixels, no
+    misleading spectral score is produced. If no pixel data exists for the
+    zone, the unmasked synthetic vector is scored and the payload states that
+    the mask was NOT applied (nothing is fabricated).
+
+    With ``use_demo_chip=True`` a clearly-labelled SYNTHETIC_DEMO pixel chip is
+    simulated per zone (see spectral.simulate_zone_chip) so the map visibly
+    exercises the NDVI masking pipeline. Those pixels are NOT real Sentinel-2
+    observations; every payload field is labelled SYNTHETIC_DEMO.
+    """
     reflectance, spectral_provenance = get_zone_reflectance(
         zone_config.get("linked_geology_record_id"),
     )
+    veg_mask = getattr(spectral_module, "zone_vegetation_mask", None)
+    chip = None
+    mask_result = None
+    if use_demo_chip:
+        chipper = getattr(spectral_module, "simulate_zone_chip", None)
+        chip = chipper(zone_config) if chipper else None
+        if chip and veg_mask:
+            mask_result = veg_mask(zone_config, band_pixels=chip.get("bands"))
+    else:
+        mask_result = veg_mask(zone_config) if veg_mask else None
+
+    if use_demo_chip:
+        # Data source is always the SYNTHETIC_DEMO chip, scorable or not.
+        spectral_provenance = (
+            getattr(spectral_module, "SIMULATED_CHIP_ZONE_REFLECTANCE_PROVENANCE",
+                    "SYNTHETIC_DEMO_CHIP_VEG_MASKED_PIXEL_MEANS")
+        )
+    elif mask_result is not None and mask_result.applied and mask_result.scorable:
+        spectral_provenance = "VEGETATION_MASKED_PIXEL_MEANS"
+
+    if mask_result is not None and mask_result.applied and mask_result.scorable:
+        reflectance = mask_result.mean_reflectance
+    elif mask_result is not None and mask_result.applied and not mask_result.scorable:
+        reflectance = None  # too few valid pixels: do not produce a score
     evaluation = fusion_module.evaluate_zone(
         zone_id=zone_config["zone_id"],
         latitude=zone_config["latitude"],
@@ -785,35 +830,102 @@ def _evaluate_zone(zone_config):
         "operational_status": zone_config.get("operational_status"),
         "zone_reflectance": reflectance,
         "zone_reflectance_provenance": spectral_provenance,
+        "vegetation_mask": _zone_vegetation_mask_payload(mask_result),
         "spectral_scene": spectral_module.SCENE_METADATA.copy(),
         "spatial_priority_band": fusion_module.priority_band(
             zone_config["spatial_score"]
         ),
         "fusion_rule": C.FUSION_PROTOTYPE_LABEL,
     })
+    if use_demo_chip:
+        payload["data_source"] = {
+            "dataset": getattr(spectral_module, "SIMULATED_CHIP_DATASET", "SYNTHETIC_DEMO"),
+            "provenance": getattr(spectral_module, "SIMULATED_CHIP_PROVENANCE", "SYNTHETIC_DEMO_CHIP"),
+            "note": (
+                "This zone's spectral result comes from a simulated pixel chip "
+                "(SYNTHETIC_DEMO) running the NDVI vegetation-masking pipeline. "
+                "It is NOT a real Sentinel-2 observation. The real AOI-level "
+                "97.84% result remains a separate AOI_LEVEL_PROTOTYPE."
+            ),
+        }
+        if chip:
+            payload["demo_chip"] = {
+                key: value
+                for key, value in chip.items()
+                if key != "bands"
+            }
     return payload
+
+
+def _zone_vegetation_mask_payload(mask_result):
+    """Serializable vegetation-mask summary for a zone payload."""
+    if mask_result is None:
+        return {
+            "status": getattr(spectral_module, "VEG_MASK_UNAVAILABLE", "UNAVAILABLE"),
+            "applied": False,
+            "total_pixels": None,
+            "vegetation_pixels_removed": None,
+            "valid_pixels_remaining": None,
+            "surface_coverage_pct": None,
+            "ndvi_threshold": None,
+            "scorable": False,
+            "reason": "Vegetation mask engine unavailable.",
+        }
+    return {
+        "status": mask_result.status,
+        "applied": mask_result.applied,
+        "total_pixels": mask_result.total_pixels,
+        "vegetation_pixels_removed": mask_result.vegetation_pixels_removed,
+        "water_pixels_excluded": mask_result.water_pixels_excluded,
+        "valid_pixels_remaining": mask_result.valid_pixels_remaining,
+        "surface_coverage_pct": mask_result.surface_coverage_pct,
+        "ndvi_threshold": mask_result.ndvi_threshold,
+        "ndvi_statistics": mask_result.ndvi_statistics,
+        "scorable": mask_result.scorable,
+        "reason": mask_result.reason,
+    }
 
 
 @app.route("/api/zones", methods=["GET"])
 def list_zones():
-    """Return every candidate zone with its per-zone fusion result."""
+    """Return every candidate zone with its per-zone fusion result.
+
+    ``?veg_demo=1`` switches each zone to the clearly-labelled SYNTHETIC_DEMO
+    pixel-chip mode so the map visibly demonstrates the vegetation-masking
+    pipeline. Synthetic chip results are never presented as real Sentinel-2
+    observations; the AOI-level 97.84% result stays an AOI_LEVEL_PROTOTYPE.
+    """
     if not ZONE_ENGINE_AVAILABLE:
         return jsonify({"error": "Zone fusion engine unavailable."}), 503
-    zones = [_evaluate_zone(zone) for zone in C.CANDIDATE_ZONES]
-    return jsonify({
+    use_demo_chip = request.args.get("veg_demo", "").lower() in ("1", "true", "yes")
+    zones = [_evaluate_zone(zone, use_demo_chip=use_demo_chip) for zone in C.CANDIDATE_ZONES]
+    payload = {
         "zones": zones,
         "count": len(zones),
         "fusion_rule": C.FUSION_PROTOTYPE_LABEL,
         "weights": C.FUSION_WEIGHTS,
         "aoi_name": "MOIL Bharveli-Awalajhari Mine AOI",
+        "demo_mode": use_demo_chip,
         "data_provenance_note": (
             "Zone coordinates and spatial scores are SYNTHETIC_DEMO_ZONE_DATA "
             "used to demonstrate the end-to-end pipeline. Zone-level spectral "
             "vectors are drawn from processed_geology.csv (SYNTHETIC_SCHEMA_FAITHFUL). "
-            "The architecture accepts real Sentinel-2 per-pixel extraction "
-            "without frontend contract changes."
+            "Per-zone vegetation (NDVI) masking is applied only when per-pixel "
+            "bands are supplied (real provider or veg_demo=1 SYNTHETIC_DEMO chips); "
+            "until then each zone reports VEG_MASK NO_PIXEL_DATA and the mask is "
+            "honestly reported as not applied. The architecture accepts real "
+            "Sentinel-2 per-pixel extraction without frontend contract changes."
         ),
-    })
+    }
+    if use_demo_chip:
+        payload["dataset"] = getattr(spectral_module, "SIMULATED_CHIP_DATASET", "SYNTHETIC_DEMO")
+        payload["demo_note"] = (
+            "Vegetation-masking demo mode is ON. Each zone uses a simulated, "
+            "deterministic SYNTHETIC_DEMO pixel chip (not real Sentinel-2 pixels) "
+            "labelled per zone via data_source / demo_chip. Do not interpret these "
+            "scores as real satellite observations."
+        )
+    return jsonify(payload)
 
 
 @app.route("/api/aoi_boundary", methods=["GET"])
@@ -836,12 +948,17 @@ def get_aoi_boundary():
 
 @app.route("/api/zones/<zone_id>", methods=["GET"])
 def get_zone(zone_id):
-    """Return the full per-zone fusion result for a single zone (map click)."""
+    """Return the full per-zone fusion result for a single zone (map click).
+
+    Honors ``?veg_demo=1`` exactly like /api/zones so the zone inspector can
+    show the SYNTHETIC_DEMO vegetation-masking chain.
+    """
     if not ZONE_ENGINE_AVAILABLE:
         return jsonify({"error": "Zone fusion engine unavailable."}), 503
+    use_demo_chip = request.args.get("veg_demo", "").lower() in ("1", "true", "yes")
     for zone in C.CANDIDATE_ZONES:
         if zone["zone_id"] == zone_id:
-            payload = _evaluate_zone(zone)
+            payload = _evaluate_zone(zone, use_demo_chip=use_demo_chip)
             # Add references used, for transparency on the detail panel.
             payload["mineral_references_used"] = [
                 {
@@ -853,6 +970,91 @@ def get_zone(zone_id):
             ]
             return jsonify(payload)
     return jsonify({"error": f"Unknown zone_id: {zone_id}"}), 404
+
+
+@app.route("/api/ndvi/filter", methods=["POST"])
+def run_ndvi_filter():
+    """Run the NDVI vegetation-filter pipeline for one zone and return results.
+
+    The frontend triggers this with a real XHR when the user clicks
+    RUN NDVI SURFACE FILTER, so the numbers the UI renders come from an actual
+    server-side computation - never client-side fakes.
+
+    Resolution order (honest contracts):
+      1. If ``spectral.ZONE_PIXEL_DATA_PROVIDER`` is configured, real per-pixel
+         Sentinel-2 bands are used (``mode`` = ``REAL_SENTINEL_2``).
+      2. Otherwise the endpoint generates a clearly-labelled SYNTHETIC_DEMO
+         pixel chip (B04/B08/B11/B12 per pixel), recomputes NDVI from the
+         bands, applies the vegetation mask and returns the full result
+         (``mode`` = ``SYNTHETIC_DEMO``). It is never presented as real
+         satellite data.
+
+    Body: ``{"zone_id": "ZONE_A"}``.
+    """
+    if not ZONE_ENGINE_AVAILABLE:
+        return jsonify({"error": "Zone fusion engine unavailable."}), 503
+    body = request.get_json(silent=True) or {}
+    zone_id = str((body.get("zone_id") or "").strip())
+    if not zone_id:
+        return jsonify({"error": "zone_id is required."}), 400
+
+    zone = next(
+        (z for z in C.CANDIDATE_ZONES if z["zone_id"] == zone_id),
+        None,
+    )
+    if zone is None:
+        return jsonify({"error": f"Unknown zone_id: {zone_id}"}), 404
+
+    # 1) Pixel source: real provider if configured, else the SYNTHETIC_DEMO chip.
+    bands = spectral_module.get_zone_pixel_data(zone) if hasattr(spectral_module, "get_zone_pixel_data") else None
+    mode = "REAL_SENTINEL_2"
+    chip = None
+    if not bands:
+        chip = getattr(spectral_module, "simulate_zone_chip", None)(zone) if hasattr(spectral_module, "simulate_zone_chip") else None
+        if not chip or not chip.get("bands"):
+            return jsonify({
+                "error": "No pixel source available (neither a real chip provider nor the SYNTHETIC_DEMO simulator)."
+            }), 503
+        bands = chip["bands"]
+        mode = "SYNTHETIC_DEMO"
+
+    # 2) NDVI is computed from B04/B08 inside the mask engine (never faked).
+    mask = spectral_module.zone_vegetation_mask(zone, band_pixels=bands)
+    total = mask.total_pixels or 0
+    veg = mask.vegetation_pixels_removed or 0
+    payload = {
+        "zone_id": zone["zone_id"],
+        "mode": mode,
+        "applied": mask.applied,
+        "status": mask.status,
+        "seed": (chip or {}).get("seed"),
+        "chip_size": (chip or {}).get("chip_size"),
+        "total_pixels": total,
+        "vegetation_pixels_removed": veg,
+        "water_pixels_excluded": mask.water_pixels_excluded,
+        "valid_pixels_remaining": mask.valid_pixels_remaining,
+        "vegetation_pct": round((veg / total) * 100) if total else 0,
+        "surface_coverage_pct": mask.surface_coverage_pct,
+        "usable_surface_pct": mask.surface_coverage_pct,
+        "ndvi_threshold": mask.ndvi_threshold,
+        "ndvi_water_low_threshold": getattr(spectral_module, "NDVI_WATER_LOW_THRESHOLD", -0.10),
+        "ndvi_statistics": mask.ndvi_statistics,
+        "scorable": mask.scorable,
+        "reason": mask.reason,
+        "classes": (chip or {}).get("classes") or [],
+        "ndvi": (chip or {}).get("ndvi") or [],
+        "bands": bands,
+        "dataset": getattr(spectral_module, "SIMULATED_CHIP_DATASET", "SYNTHETIC_DEMO"),
+        "provenance": getattr(spectral_module, "SIMULATED_CHIP_PROVENANCE", "SYNTHETIC_DEMO_CHIP"),
+    }
+    if mode == "SYNTHETIC_DEMO":
+        payload["note"] = (
+            "SYNTHETIC_DEMO pixel chip generated server-side on this request: "
+            "NDVI was computed from the chip's B04/B08 and the vegetation mask "
+            "was applied to produce these statistics. This is NOT a real "
+            "Sentinel-2 observation."
+        )
+    return jsonify(payload)
 
 
 @app.route("/api/xai", methods=["GET"])
@@ -926,4 +1128,4 @@ def get_weather():
     })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)
