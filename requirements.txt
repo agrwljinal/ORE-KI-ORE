@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-=======
 flask
 requests
->>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
 streamlit
 pandas
 numpy
