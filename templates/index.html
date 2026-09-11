@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Leaflet CSS for Map Telemetry -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+</head>
+<body>
+    <div class="dashboard-wrapper">
+        
+        <!-- TOP NAVIGATION BAR -->
+        <header class="top-nav-bar">
+            <div class="brand-cluster">
+                <span class="moil-symbol">MOIL</span>
+                <h1 class="app-title-text">Mining & Financial Risk Intelligence Engine</h1>
+            </div>
+            <div class="header-meta">
+                <div class="site-badge">📍 <span id="site-name">Balaghat Sector 4</span></div>
+                <div class="scada-badge">
+                    <span class="scada-dot"></span>
+                    <span>LIVE SCADA FEED</span>
+                </div>
+                <div class="utc-clock" id="system-time">--:--:-- UTC</div>
+            </div>
+        </header>
+
+        <!-- FULL-WIDTH CRITICAL DEFICIT HERO BANNER -->
+        <section class="deficit-hero-card" id="hero-banner">
+            <div class="deficit-heading-wrap">
+                <div class="deficit-tagline">CRITICAL PRODUCTION DEFICIT DETECTED</div>
+                <div class="deficit-main-title" id="hero-shortfall-title">SHORTFALL ALERT: 2,800 MT DEFICIT PREDICTED</div>
+            </div>
+            <div class="hero-metric-quad">
+                <div class="hero-sub-metric">
+                    <div class="hero-sub-label">Rupee Loss Ledger</div>
+                    <div class="hero-sub-value text-red" id="hero-loss-val">₹5.18 Cr</div>
+                </div>
+                <div class="hero-sub-metric">
+                    <div class="hero-sub-label">Predicted Output</div>
+                    <div class="hero-sub-value text-cyan" id="hero-output-val">11,700 MT</div>
+                </div>
+                <div class="hero-sub-metric">
+                    <div class="hero-sub-label">Monthly Target</div>
+                    <div class="hero-sub-value" id="hero-target-val">14,500 MT</div>
+                </div>
+                <div class="hero-sub-metric">
+                    <div class="hero-sub-label">Simulation State</div>
+                    <div class="hero-sub-value text-state" id="hero-sim-state">UNMITIGATED RISK</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- MAIN SPLIT CONTENT GRID (35% / 65%) -->
+        <main class="main-split-grid">
+            
+            <!-- LEFT COLUMN: OPERATIONAL & RISK PARAMETERS -->
+            <div class="grid-col-left">
+                
+                <!-- CARD: OPERATIONAL CONTROLS -->
+                <section class="industrial-card">
+                    <div class="card-header-bar">
+                        <div class="card-header-title">
+                            <span>⚙️</span> Operational & Risk Parameters
+                        </div>
+                        <span class="warning-pill">Active Monsoon Warning</span>
+                    </div>
+
+                    <div class="form-row flex-between">
+                        <label class="toggle-container">
+                            <input type="checkbox" id="toggle-weather-sync" checked>
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Auto-Sync Weather API</span>
+                        </label>
+                        <div class="select-wrapper">
+                            <select id="ore-grade-mix" class="industrial-select">
+                                <option value="HG">Grade High (44-46% Mn)</option>
+                                <option value="STD" selected>Grade Standard (38-42% Mn)</option>
+                                <option value="FB">Ferro Blend (34-37% Mn)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="slider-rainfall">Rainfall Volume (mm / 24h) — Stn R-04</label>
+                            <span class="control-val-badge text-red" id="val-rainfall">88.5 mm</span>
+                        </div>
+                        <input type="range" id="slider-rainfall" min="0" max="250" step="0.5" value="88.5" class="industrial-range">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="slider-mtbf">Equipment MTBF / Fleet Uptime (Hours)</label>
+                            <span class="control-val-badge text-amber" id="val-mtbf">26.0 hrs</span>
+                        </div>
+                        <input type="range" id="slider-mtbf" min="5" max="72" step="1" value="26.0" class="industrial-range">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="slider-labor">Labor Attendance Deficit (%)</label>
+                            <span class="control-val-badge text-cyan" id="val-labor">18 %</span>
+                        </div>
+                        <input type="range" id="slider-labor" min="0" max="50" step="1" value="18" class="industrial-range">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="input-target">Weekly Target Tonnage (MT)</label>
+                            <span class="control-val-badge text-slate" id="val-target-label">14,500 MT</span>
+                        </div>
+                        <input type="number" id="input-target" min="5000" max="30000" step="500" value="14500" class="industrial-input">
+                    </div>
+                </section>
+
+                <!-- CARD: AI PRESCRIPTIVE OPTIMIZATION -->
+                <section class="industrial-card">
+                    <div class="card-header-bar">
+                        <div class="card-header-title">
+                            <span>⚡</span> AI Prescriptive Optimization
+                        </div>
+                        <span class="gain-pill">+2,800 MT RECOVERABLE</span>
+                    </div>
+
+                    <div class="prescriptive-list" id="recommendations-container">
+                        <!-- Injected via JavaScript -->
+                    </div>
+
+                    <div class="button-action-cluster">
+                        <button type="button" id="btn-execute-plan" class="btn btn-primary">EXECUTE OPTIMIZATION PLAN</button>
+                        <button type="button" id="btn-reset-plan" class="btn btn-secondary">Reset Simulation</button>
+                    </div>
+                </section>
+
+            </div>
+
+            <!-- RIGHT COLUMN: SPATIAL TELEMETRY, SPECTRAL & XAI -->
+            <div class="grid-col-right">
+
+                <!-- CARD: SPATIAL MAP & TELEMETRY -->
+                <section class="industrial-card">
+                    <div class="card-header-bar">
+                        <div class="card-header-title">
+                            <span>🛰️</span> Spatial Reserve & Telemetry Map
+                        </div>
+                        <div class="map-controls-inline">
+                            <label class="toggle-container mini">
+                                <input type="checkbox" id="toggle-space-layer" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">Chandrayaan-2 Space Layer</span>
+                            </label>
+                            <span class="epsg-tag">EPSG:32644</span>
+                        </div>
+                    </div>
+
+                    <!-- Leaflet Container -->
+                    <div id="spatial-map" class="map-render-frame"></div>
+
+                    <!-- Pit Status Grid -->
+                    <div class="pit-telemetry-grid" id="pit-telemetry-grid">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+
+                    <!-- MANDATED SPECTRAL COMPLIANCE STRIP -->
+                    <div class="spec-compliance-card">
+                        <div class="spec-match-title" id="spectral-title">97.84% PYROLUSITE SPECTRAL SIMILARITY</div>
+                        <div class="spec-meta-tags">
+                            <span class="spec-tag">Sentinel-2C L2A</span>
+                            <span class="spec-tag">AOI-level screening</span>
+                            <span class="spec-tag">USGS Pyrolusite Reference</span>
+                            <span class="spec-tag">Prototype threshold — requires field/lab validation</span>
+                        </div>
+                        <!-- Mini Spectral Canvas -->
+                        <div class="spec-chart-container">
+                            <canvas id="spectralCanvas" width="700" height="70"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- CARD: ROOT-CAUSE ATTRIBUTION (XAI) -->
+                <section class="industrial-card">
+                    <div class="card-header-bar">
+                        <div class="card-header-title">
+                            <span>🧠</span> Root-Cause Attribution (XAI Engine)
+                        </div>
+                        <span class="conf-pill" id="xai-conf-badge">Model Conf: 94.2%</span>
+                    </div>
+
+                    <div class="xai-bars-container">
+                        <div class="xai-bar-row">
+                            <div class="xai-bar-label-line">
+                                <span>Monsoon Precipitation & Sump Flooding</span>
+                                <span class="xai-pct text-red" id="xai-val-rain">54%</span>
+                            </div>
+                            <div class="xai-bar-track">
+                                <div class="xai-bar-fill fill-red" id="bar-rain" style="width: 54%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="xai-bar-row">
+                            <div class="xai-bar-label-line">
+                                <span>Haulage Fleet & Dumper Downtime (MTBF Loss)</span>
+                                <span class="xai-pct text-amber" id="xai-val-mtbf">36%</span>
+                            </div>
+                            <div class="xai-bar-track">
+                                <div class="xai-bar-fill fill-amber" id="bar-mtbf" style="width: 36%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="xai-bar-row">
+                            <div class="xai-bar-label-line">
+                                <span>Ore Grade Dilution & Clay Contamination</span>
+                                <span class="xai-pct text-cyan" id="xai-val-grade">10%</span>
+                            </div>
+                            <div class="xai-bar-track">
+                                <div class="xai-bar-fill fill-cyan" id="bar-grade" style="width: 10%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="xai-insight-box" id="xai-narrative-text">
+                        "XAI Diagnostic: Inundation in Pit 1 accounts for the primary path obstruction. Execution of Prescriptive Rerouting to Pit B (South Ridge) re-establishes 82% of baseline throughput without exceeding loader duty cycle."
+                    </div>
+                </section>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="/static/script.js"></script>
+</body>
+</html>
