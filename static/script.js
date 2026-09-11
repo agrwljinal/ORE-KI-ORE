@@ -120,9 +120,10 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n, s = "") => (n === null || n === undefined) ? "--" : `${n}${s}`;
 
 const priorityStyle = (p) => {
-  if (p === "HIGH")   return { color: "#F87171", glow: "rgba(248, 113, 113, 0.70)" };
+  // Green = HIGH (most suitable for mining - matches user expectation).
+  if (p === "HIGH")   return { color: "#4ADE80", glow: "rgba(74, 222, 128, 0.70)" };
   if (p === "MEDIUM") return { color: "#FBBF24", glow: "rgba(251, 191, 36, 0.65)" };
-  return { color: "#4ADE80", glow: "rgba(74, 222, 128, 0.65)" };
+  return { color: "#F87171", glow: "rgba(248, 113, 113, 0.70)" }; // LOW
 };
 const priorityColor = (p) => priorityStyle(p).color;
 
@@ -808,9 +809,14 @@ async function runScreeningReveal() {
   await delay(1200);
   if (token !== revealStopToken || !toggle.checked) { scanTint(false); return; }
 
-  const ranked = zonesCache
-    .filter((z) => z.spectral_similarity !== null && z.spectral_similarity !== undefined)
-    .sort((a, b) => b.spectral_similarity - a.spectral_similarity);
+  // Ranked by spectral similarity; suppressed zones (score withheld) come
+  // last but still get a halo, so every zone's colour shows - including the
+  // green LOW-priority zone that would otherwise silently disappear.
+  const ranked = [...zonesCache].sort((a, b) => {
+    const sa = (a.spectral_similarity === null || a.spectral_similarity === undefined) ? -1 : a.spectral_similarity;
+    const sb = (b.spectral_similarity === null || b.spectral_similarity === undefined) ? -1 : b.spectral_similarity;
+    return sb - sa;
+  });
 
   for (const z of ranked) {
     if (token !== revealStopToken || !toggle.checked) { scanTint(false); return; }
@@ -826,7 +832,9 @@ async function runScreeningReveal() {
 
 function addEnergyHalo(z) {
   const st = priorityStyle(z.spatial_priority_band);
-  const radius = 48 + Math.round((z.spectral_similarity / 100) * 56); // 48..104 px
+  const sim = z.spectral_similarity;
+  const withheld = sim === null || sim === undefined;
+  const radius = 48 + Math.round(((sim || 0) / 100) * 56); // 48..104 px
   const haloSize = radius * 2;
   const coreSize = Math.round(haloSize * 0.34);
   const icon = L.divIcon({
@@ -837,7 +845,7 @@ function addEnergyHalo(z) {
       `</div>` +
       `<div class="halo-label">` +
       `<span class="halo-kicker">Spectral Similarity</span>` +
-      `<span class="halo-sim">${fmt(z.spectral_similarity, "%")}</span>` +
+      `<span class="halo-sim${withheld ? " withheld" : ""}">${withheld ? "SCORE WITHHELD" : fmt(sim, "%")}</span>` +
       `<span class="halo-mineral">Pyrolusite</span>` +
       `</div>`,
     iconSize: [haloSize, haloSize],
