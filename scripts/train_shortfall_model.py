@@ -153,6 +153,23 @@ def main() -> None:
         if coeff_map.get(name, 0.0) > 0
     ]
 
+    # Per-mine calibration (rebase ideal to unit). The raw OLS intercept
+    # prices in historical structural under-performance, so even perfect
+    # conditions predict output_ratio < 1.0 (persistent shortfall). We
+    # compute, for every mine, its ideal-condition output_ratio
+    # (zero rain, zero downtime, full labor availability, rolling cols at
+    # same-day defaults) and store an offset that brings that exactly to
+    # 1.0. modules/prediction.py adds the offset at request time; the raw
+    # coefficients are left untouched and honest.
+    labor_proxy_coef = coeff_map.get("labor_availability_proxy", 0.0)
+    calibration_offsets = {}
+    for mine in mine_list:
+        ideal_ratio = intercept + labor_proxy_coef * 1.0
+        for m in mine_list[1:]:
+            if m == mine:
+                ideal_ratio += coeff_map.get(f"mine_{m}", 0.0)
+        calibration_offsets[mine] = round(1.0 - ideal_ratio, 4)
+
     bundle = {
         "model_type": "linear_regression_13_feature",
         "target": "output_ratio (actual_rom_tonnes / target_rom_tonnes)",
@@ -165,6 +182,13 @@ def main() -> None:
             "rain_cap_mm": RAIN_NORM_CAP_MM,
             "downtime_cap_hrs": DOWNTIME_NORM_CAP_HRS,
             "blast_delay_cap_min": BLAST_DELAY_NORM_CAP_MIN,
+        },
+        "calibration": {
+            "mode": "rebase_ideal_to_unit",
+            "offsets_output_ratio": calibration_offsets,
+            "note": "Per-mine offset added at request time so ideal conditions "
+                    "(0 mm rain, capacity MTBF, 0% labor drop) yield output_ratio 1.0 "
+                    "exactly (zero structural shortfall).",
         },
         "metrics": {
             "pooled_test_r2": round(pooled_test_r2, 4),
@@ -184,7 +208,12 @@ def main() -> None:
                 "multicollinearity between rainfall/downtime/blast-delay columns, not a claim that "
                 "more downtime increases output. Interpret coefficient magnitude, not sign, for these."
             ] if counter_intuitive_signs else []
-        ),
+        ) + [
+            "Predictions include a per-mine calibration offset so that ideal slider "
+            "conditions (0 mm rain, 150 hr MTBF, 0% labor drop) yield output_ratio "
+            "1.0 (zero structural shortfall). Without calibration the raw OLS intercept "
+            "reflects historical structural under-performance.",
+        ],
         "trained_on": "data/processed_production.csv (v3, 7 MOIL mines, daily breakdown synthetic, "
                        "annual totals sourced from IBM MCDR filings)",
     }
@@ -200,6 +229,7 @@ def main() -> None:
     print(f"Per-mine test R^2: {per_mine_r2}")
     if counter_intuitive_signs:
         print(f"NOTE: counter-intuitive positive coefficients on {counter_intuitive_signs} (multicollinearity)")
+    print(f"Calibration offsets (ideal -> ratio 1.0): {calibration_offsets}")
 
 
 if __name__ == "__main__":

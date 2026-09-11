@@ -42,6 +42,7 @@ def _load_model():
                 "feature_order": list(bundle["feature_order"]),
                 "mine_list": list(bundle["mine_list"]),
                 "baseline_mine": bundle.get("baseline_mine"),
+                "calibration": bundle.get("calibration") or {},
                 "honesty_notes": bundle.get("honesty_notes") or [],
             }
         except Exception as exc:  # noqa: BLE001 - never let a model-load issue crash the app
@@ -147,6 +148,12 @@ def predict_shortfall_with_model(base_target, rainfall_mm, mtbf_hrs, labor_drop_
     output_ratio = model["intercept"]
     for col, val in zip(model["feature_order"], vector):
         output_ratio += model["coefficients"].get(col, 0.0) * val
+
+    # Per-mine calibration: rebase ideal conditions to ratio 1.0 so the
+    # dashboard doesn't show structural shortfall at perfect sliders.
+    calibration = model.get("calibration") or {}
+    mine_for_offset = mine_name if mine_name in model.get("mine_list", []) else model.get("baseline_mine")
+    output_ratio += float(calibration.get("offsets_output_ratio", {}).get(mine_for_offset, 0.0))
     output_ratio = min(max(output_ratio, 0.0), 2.0)
 
     predicted = float(base_target * output_ratio)
