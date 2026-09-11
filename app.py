@@ -118,16 +118,13 @@ with tab2:
 with tab3:
     spectral.render_aoi_spectral_overlay()
 
-# --- TAB 4: Prescriptive Planning Engine (Member 4) ---
 with tab4:
     st.header("Actionable Mitigation & Resource Shift Plan")
-    st.json(plan_recommendation)
-    
     execution_status = prescriptive.apply_plan(plan_recommendation, pred_results)
+
     if execution_status.get("execute_clicked"):
         st.session_state["execution_state"] = True
         st.rerun()
-
 # --- TAB 5: XAI & Confidence Meter (Member 6 / Team Lead) ---
 with tab5:
     st.header("Explainable AI (XAI) & Model Reliability")

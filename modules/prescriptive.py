@@ -83,6 +83,41 @@ ACTION_DISPLAY_LABELS = {
     "BLENDING": "Blend ore with available stockpile",
 }
 
+# Human-readable rule/domain explanations backing each candidate action.
+# These are STATIC operational heuristics written for mine operators — they
+# are NOT produced by the ML model and must never be presented as if the ML
+# model generated them. The ML model only estimates recovered tonnage.
+ACTION_RULE_EXPLANATIONS = {
+    "REROUTE_FLEET": "Fleet/logistics disruption makes alternative fleet routing useful.",
+    "DEWATERING": "High rainfall/water accumulation makes water removal useful.",
+    "PREVENTIVE_MAINTENANCE": "High equipment downtime indicates that restoring equipment availability may recover production.",
+    "CONTINGENCY_LABOR": "Reduced labor availability makes additional temporary labor useful.",
+    "BLENDING": "Available stockpile material can help compensate for reduced production while maintaining the required product quality.",
+}
+
+# Prototype per-action operating cost (₹ / action): median of the M4
+# prototype action dataset. Hackathon reference figure ONLY — NOT an official
+# MOIL cost. Used solely for the illustrative net-benefit estimate on the
+# operator-selected plan.
+ACTION_PROTOTYPE_COST_INR = {
+    "REROUTE_FLEET": 6245.0,
+    "DEWATERING": 9423.0,
+    "PREVENTIVE_MAINTENANCE": 12898.0,
+    "CONTINGENCY_LABOR": 3969.0,
+    "BLENDING": 3576.0,
+}
+
+# State-transition constants for the sequential "selected plan" simulation.
+# Explicit prototype assumptions ONLY — none of these were learned from real
+# mine data. Every state value produced is clamped to a physically plausible
+# range (floor of 0 / ceiling of 100% where applicable) so the simulation can
+# never manufacture impossible values.
+_DEWATERING_RAIN_REMAINING_FRACTION = 0.25       # rainfall severity drops to 25% after dewatering
+_MAINTENANCE_DOWNTIME_REMAINING_FRACTION = 0.40  # downtime drops to 40% after maintenance
+_REROUTE_DOWNTIME_REMAINING_FRACTION = 0.50      # fleet reroute halves the downtime penalty
+_LABOR_DROP_REMAINING_FRACTION = 0.15            # extra labor cuts the labor shortfall to 15%
+_IMPROVED_AVAILABILITY_FLOOR_PCT = 95.0          # serviced/rerouted assets >= 95% availability
+
 
 # --------------------------------------------------------------------------
 # STEP A — RECOVER APPROXIMATE RAW OPERATING SIGNALS
@@ -388,7 +423,14 @@ def _build_feature_row(bundle: Dict[str, Any], action: str, mine_name: str, sign
     if action == "CONTINGENCY_LABOR":
         row["labor_available_pct"] = signals["labor_available_pct_signal"]
     if action == "BLENDING":
-        row["stockpile_available_tonnes"] = _resource_percentile(bundle, action, "stockpile_available_tonnes", percentile, 200.0)
+        # Prefer the live simulated stockpile level when one is present (the
+        # sequential planner depletes it step by step); otherwise fall back to
+        # the training-resource median like the original code did.
+        if "stockpile_available_tonnes" in signals:
+            stockpile_val = signals["stockpile_available_tonnes"]
+        else:
+            stockpile_val = _resource_percentile(bundle, action, "stockpile_available_tonnes", percentile, 200.0)
+        row["stockpile_available_tonnes"] = stockpile_val
         row["quality_uplift_pct"] = _resource_percentile(bundle, action, "quality_uplift_pct", percentile, 3.5)
 
     action_col = f"action_{action}"
@@ -434,26 +476,32 @@ def _fallback_heuristic_tonnage(action: str, shortfall_tonnage: float) -> float:
 # STEP E — EVALUATE EACH CANDIDATE ACTION AND RANK THEM
 # --------------------------------------------------------------------------
 
-def _evaluate_candidate(bundle: Optional[Dict[str, Any]], model_error: Optional[str], candidate: Dict[str, str],
-                         mine_name: str, mine_name_note: Optional[str], signals: Dict[str, Any]) -> Dict[str, Any]:
-    action = candidate["action"]
-    shortfall = signals["shortfall_tonnage"]
-
-    best = None
-    for percentile, label in (("p25", "conservative"), ("median", "standard"), ("p75", "intensive")):
+def _best_recovery(bundle: Optional[Dict[str, Any]], mine_name: str,
+                   signals: Dict[str, Any], action: str) -> Dict[str, Any]:
+    """Runs the action through the three effort levels (conservative /
+    standard / intensive) and picks the "best" supported estimate, mirroring
+    the original ranking logic. Returns a dict with recovered_tonnage,
+    resources_allocated, duration_hours, action_intensity, meets_shortfall,
+    used_ml_model. Falls back to the rule-of-thumb only when the model
+    artifact is unavailable.
+    """
+    shortfall = signals.get("shortfall_tonnage", 0.0)
+    best: Optional[Dict[str, Any]] = None
+    for percentile in ("p25", "median", "p75"):
         tonnage, feature_row = _predict_recovered_tonnage(bundle, action, mine_name, signals, percentile)
-        simulated_fallback = tonnage is None
         if tonnage is None:
             tonnage = _fallback_heuristic_tonnage(action, shortfall)
+            used_ml_model = False
+        else:
+            used_ml_model = True
 
         candidate_eval = {
-            "effort_level": label,
             "recovered_tonnage": round(tonnage, 2),
             "resources_allocated": round(feature_row.get("resources_allocated", 0.0), 1),
             "duration_hours": round(feature_row.get("duration_hours", 0.0), 1),
             "action_intensity": round(feature_row.get("action_intensity", 0.0), 2),
             "meets_shortfall": tonnage >= shortfall * 0.9 if shortfall > 0 else True,
-            "used_ml_model": not simulated_fallback,
+            "used_ml_model": used_ml_model,
         }
         if best is None:
             best = candidate_eval
@@ -464,6 +512,20 @@ def _evaluate_candidate(bundle: Optional[Dict[str, Any]], model_error: Optional[
                 or (not candidate_eval["meets_shortfall"] and candidate_eval["recovered_tonnage"] > best["recovered_tonnage"])
         ):
             best = candidate_eval
+    return best or {
+        "recovered_tonnage": 0.0,
+        "resources_allocated": 0.0,
+        "duration_hours": 0.0,
+        "action_intensity": 0.0,
+        "meets_shortfall": shortfall <= 0,
+        "used_ml_model": False,
+    }
+
+
+def _evaluate_candidate(bundle: Optional[Dict[str, Any]], model_error: Optional[str], candidate: Dict[str, str],
+                         mine_name: str, mine_name_note: Optional[str], signals: Dict[str, Any]) -> Dict[str, Any]:
+    action = candidate["action"]
+    best = _best_recovery(bundle, mine_name, signals, action)
 
     notes = []
     if mine_name_note:
@@ -566,6 +628,59 @@ def generate_recommendations(prediction: Optional[Dict[str, Any]], risk: Optiona
             "fallback and are lower-confidence."
         )
 
+    # --- HITL options list: every operationally-sensible candidate action is
+    # surfaced to the operator (AI recommends, the user decides). Each option
+    # carries the ACTUAL ML estimate (never a hardcoded value) plus a
+    # rule/domain reason. "recommended" is only a visual top-suggestion flag;
+    # nothing is automatically committed.
+    ordering = sorted(evaluated, key=lambda e: (not e["meets_shortfall"], -e["recovered_tonnage"]))
+    options = [
+        {
+            "action": e["action"],
+            "expected_recovery_tonnes": e["recovered_tonnage"],
+            "reason": ACTION_RULE_EXPLANATIONS.get(e["action"], e["reason"]),
+            "scenario_reason": e["reason"],
+            "recommended": e["action"] == primary["action"],
+            "resource_allocation_pct": e["resources_allocated"],
+            "estimated_action_duration_hours": e["duration_hours"],
+            "action_intensity": e["action_intensity"],
+            "meets_shortfall": e["meets_shortfall"],
+            "used_ml_model": e["used_ml_model"],
+            "action_cost": ACTION_PROTOTYPE_COST_INR.get(e["action"], 0.0),
+            "notes": list(e["notes"]) + [
+                "Expected recovery is an ML-model estimate; the reason is a rule/domain explanation, not an ML claim.",
+            ],
+        }
+        for e in ordering
+    ]
+
+    # --- Snapshot of the current scenario state that the operator-selected
+    # plan simulator (calculate_selected_plan) will start from. This embeds
+    # the derived operating signals so multi-action evaluation can update the
+    # state step by step without re-deriving (and keeps the ML feature vector
+    # consistent across steps).
+    initial_state = {
+        "mine_name": mine_name,
+        "source_pocket": {
+            "name": source_pocket["name"],
+            "grade_pct": source_pocket.get("grade_pct"),
+            "mine_name": source_pocket.get("mine_name"),
+        },
+        "target_pocket": (
+            {"name": target_pocket["name"], "grade_pct": target_pocket.get("grade_pct"),
+             "mine_name": target_pocket.get("mine_name")}
+            if target_pocket else None
+        ),
+        "price_per_tonne_inr": float(source_price["price_per_tonne_inr"]),
+        "stockpile_available_tonnes": (
+            _resource_percentile(bundle, "BLENDING", "stockpile_available_tonnes", "median", 200.0)
+            if bundle is not None else 200.0
+        ),
+        # All rows below are the derived operating signals the ML feature
+        # builder reads (rainfall, downtime, labor, volumes, grades, ...).
+        **{k: v for k, v in signals.items()},
+    }
+
     recommendation = {
         # --- Top-level compatibility field expected by the existing app.py ---
         "recoverable_tonnage": recovered_tonnage,
@@ -626,13 +741,314 @@ def generate_recommendations(prediction: Optional[Dict[str, Any]], risk: Optiona
             for e in alternatives
         ],
 
+        # --- HITL: candidate options for the operator to choose from ---
+        "plan_type": "ai_recommendation",
+        "options": options,
+
+        # --- Internal snapshot consumed by calculate_selected_plan() to run
+        # the operator-selected plan simulation (documented, not user-facing).
+        "scenario_state": initial_state,
+
         "assumptions": assumptions,
     }
     return recommendation
 
 
 # --------------------------------------------------------------------------
-# PUBLIC API — 2. apply_plan  ("Execute Plan" interaction + phased state)
+# PUBLIC API — 2. calculate_selected_plan
+# (operator-chosen actions, evaluated sequentially against an updated state)
+# --------------------------------------------------------------------------
+
+def _normalize_selected_actions(selected_actions: Optional[List[str]]) -> List[str]:
+    """Returns a clean, deduplicated, ordered list of valid action codes from
+    whatever the caller passed (checkboxes, multiselect, or a bare string).
+    Unknown/empty entries are dropped. The original order is preserved because
+    order defines the evaluation/execution sequence.
+    """
+    valid = set(ACTION_RULE_EXPLANATIONS)
+    out: List[str] = []
+    for entry in (selected_actions or []):
+        if not isinstance(entry, str):
+            continue
+        code = entry.strip().upper()
+        if code in valid and code not in out:
+            out.append(code)
+    return out
+
+
+def _apply_action_state_change(state: Dict[str, Any], action: str,
+                               recovered_tonnes: float) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Simulates the influence of executing `action` on the operating state
+    dict that will be used to evaluate the NEXT selected action in the
+    operator's plan.
+
+    IMPORTANT: these are explicit prototype assumptions for the sequential
+    plan simulation. They were NOT learned from real mine data and are NOT a
+    claim about learned action-to-action causal effects. Every mutated field
+    is clamped to a physically plausible range (floor 0 / ceiling 100%) so the
+    simulation can never produce impossible values.
+
+    Returns (updated_state_copy, changes) where `changes` records the
+    before/after value (and a one-line rationale) for each touched field so
+    the plan output stays transparent to the operator.
+    """
+    s = dict(state)
+    changes: Dict[str, Any] = {}
+
+    def _record(field: str, before: float, after: float, note: str) -> None:
+        changes[field] = {
+            "before": round(float(before), 3),
+            "after": round(float(after), 3),
+            "note": note,
+        }
+
+    if action == "DEWATERING":
+        # Reduce water/rain-related severity and improve the effective
+        # operating condition (rain-driven disruption drops). Never negative.
+        before = float(s.get("rainfall_mm", 0.0))
+        after = max(0.0, before * _DEWATERING_RAIN_REMAINING_FRACTION)
+        s["rainfall_mm"] = after
+        _record(
+            "rainfall_mm", before, after,
+            "Dewatering reduces standing-water/rain-derived severity; the effective operating "
+            "condition improves because rainfall-related disruption drops. Prototype assumption only.",
+        )
+
+    elif action == "PREVENTIVE_MAINTENANCE":
+        # Reduce equipment downtime (never below 0) and restore availability.
+        before = float(s.get("equipment_downtime_hours", 0.0))
+        after = max(0.0, before * _MAINTENANCE_DOWNTIME_REMAINING_FRACTION)
+        s["equipment_downtime_hours"] = after
+        s["downtime_3d_hours"] = after * 3.0
+        _record(
+            "equipment_downtime_hours", before, after,
+            "Preventive maintenance reduces expected equipment downtime; floor is 0 hours (never negative).",
+        )
+        avail_before = float(s.get("available_equipment_pct", 0.0))
+        s["available_equipment_pct"] = min(100.0, max(avail_before, _IMPROVED_AVAILABILITY_FLOOR_PCT))
+        _record(
+            "available_equipment_pct", avail_before, s["available_equipment_pct"],
+            "Serviced equipment is restored to at least 95% availability; capped at 100%.",
+        )
+
+    elif action == "REROUTE_FLEET":
+        # Improve effective fleet/transport availability (the reroute avoids
+        # the disrupted route); never produce negative downtime values.
+        before = float(s.get("equipment_downtime_hours", 0.0))
+        after = max(0.0, before * _REROUTE_DOWNTIME_REMAINING_FRACTION)
+        s["equipment_downtime_hours"] = after
+        s["downtime_3d_hours"] = after * 3.0
+        _record(
+            "equipment_downtime_hours", before, after,
+            "Fleet rerouting improves effective fleet/transport availability, lowering the disruption penalty.",
+        )
+        avail_before = float(s.get("available_equipment_pct", 0.0))
+        s["available_equipment_pct"] = min(100.0, max(avail_before, _IMPROVED_AVAILABILITY_FLOOR_PCT))
+        _record(
+            "available_equipment_pct", avail_before, s["available_equipment_pct"],
+            "Effective transport availability improves; capped at 100%.",
+        )
+
+    elif action == "CONTINGENCY_LABOR":
+        # Improve labor availability; labor_drop_pct can never go below 0.
+        before = float(s.get("labor_drop_pct", 0.0))
+        after = max(0.0, before * _LABOR_DROP_REMAINING_FRACTION)
+        s["labor_drop_pct"] = after
+        s["labor_available_pct_signal"] = max(0.0, min(100.0, 100.0 - after))
+        _record(
+            "labor_drop_pct", before, after,
+            "Additional temporary labor reduces the labor shortfall; floor is 0% (never negative).",
+        )
+        _record(
+            "labor_available_pct_signal", 100.0 - before, s["labor_available_pct_signal"],
+            "Labor availability recomputed from the reduced labor drop; capped at 100%.",
+        )
+
+    elif action == "BLENDING":
+        # Consume available stockpile; never allow it below zero. Prototype
+        # 1:1 assumption: each tonne of blending-derived recovery consumes
+        # one tonne of stockpile (a simplified approximation for the demo).
+        before = float(s.get("stockpile_available_tonnes", 0.0))
+        after = max(0.0, before - float(recovered_tonnes or 0.0))
+        s["stockpile_available_tonnes"] = after
+        _record(
+            "stockpile_available_tonnes", before, after,
+            "Blending consumes available stockpile; floor is 0 tonnes (never negative). "
+            "Prototype 1:1 assumption, not a learned relationship.",
+        )
+
+    # Keep shortfall bookkeeping coherent at every step.
+    s["shortfall_tonnage"] = max(0.0, float(s.get("shortfall_tonnage", 0.0)))
+    target = float(s.get("target_rom_tonnes", 0.0))
+    s["shortfall_pct"] = (s["shortfall_tonnage"] / target * 100.0) if target > 0 else 0.0
+    return s, changes
+
+
+def calculate_selected_plan(plan_recommendation: Dict[str, Any],
+                            prediction: Optional[Dict[str, Any]],
+                            selected_actions: Optional[List[str]],
+                            risk: Optional[Dict[str, Any]] = None,
+                            ore_pockets: Optional[List[Any]] = None) -> Dict[str, Any]:
+    """Evaluates the OPERATOR-CHOSEN action(s) sequentially and returns the
+    expected outcome of that selected plan.
+
+    Flow (AI recommends → user decides → system simulates):
+      * Start from the current scenario state (captured by
+        generate_recommendations() under "scenario_state"; if absent it is
+        re-derived from `prediction`/`risk`/`ore_pockets`).
+      * For each selected action (in user order):
+          - ask the ML model for the expected recovery against the CURRENT
+            state, cap it at the current remaining shortfall (never negative,
+            never more than what is left),
+          - subtract it from the remaining shortfall,
+          - apply the documented prototype state update so the NEXT action is
+            evaluated against the improved (plausibly-constrained) state.
+      * Independent ML predictions are deliberately NOT blindly summed — each
+        action is evaluated after the previous one's state change, and the AI
+        never adds actions the operator did not choose.
+
+    Returns (always pure compute — no Streamlit calls, safe for app.py to use
+    inside a checkbox/multiselect UI):
+        {"plan_type": "operator_selected", "recommended_action": ...,
+         "selected_actions": [...], "action_sequence": [...],
+         "total_expected_recovery_tonnes": ..., "final_remaining_shortfall": ...,
+         "total_action_cost": ..., "revenue_saved": ..., "net_benefit": ...,
+         "recoverable_tonnage": ..., "expected_recovery_tonnes": ...,
+         "remaining_shortfall": ..., "is_simulated": True, "assumptions": [...]}
+    """
+    plan_recommendation = plan_recommendation or {}
+    prediction = prediction or {}
+    selected = _normalize_selected_actions(selected_actions)
+
+    bundle, model_error = _get_model_bundle()
+
+    # --- Recover the starting state (prefer the snapshot the recommender
+    # embedded; fall back to re-deriving when a homemade dict is passed). ---
+    state_source = plan_recommendation.get("scenario_state")
+    if not state_source:
+        # Minimal fallback state construction (no scenario_state was stored).
+        risk = risk or {}
+        signals = _derive_operating_signals(prediction, risk)
+        source_pocket, target_pocket, _ = _select_source_and_target(list(ore_pockets or []))
+        signals["avg_mn_grade_pct"] = source_pocket.get("grade_pct", 38.0)
+        mine_name, _ = _resolve_mine_name(bundle or {"mine_list": []}, signals, source_pocket)
+        state_source = {
+            "mine_name": mine_name,
+            "source_pocket": source_pocket,
+            "target_pocket": target_pocket,
+            "price_per_tonne_inr": float(_grade_price_reference(source_pocket.get("grade_pct"))["price_per_tonne_inr"]),
+            "stockpile_available_tonnes": (
+                _resource_percentile(bundle, "BLENDING", "stockpile_available_tonnes", "median", 200.0)
+                if bundle is not None else 200.0
+            ),
+            **dict(signals),
+        }
+
+    state = dict(state_source)
+    options_lookup = {
+        (o.get("action") or "").upper(): o for o in (plan_recommendation.get("options") or [])
+    }
+
+    # --- Initial figures ---
+    shortfall = max(0.0, float(state.get("shortfall_tonnage") or prediction.get("shortfall_tonnage") or 0.0))
+    target = max(0.0, float(state.get("target_rom_tonnes") or (float(prediction.get("predicted_tonnage") or 0.0) + shortfall)))
+    state.setdefault("target_rom_tonnes", target)
+    mine_name = str(state.get("mine_name") or "")
+    price_per_tonne = float(state.get("price_per_tonne_inr") or 0.0)
+    source_pocket = state.get("source_pocket") or {}
+
+    # --- Sequential evaluation of the operator's chosen actions ---
+    action_sequence: List[Dict[str, Any]] = []
+    remaining = shortfall
+    for idx, action in enumerate(selected, start=1):
+        remaining = max(0.0, remaining)
+        state["shortfall_tonnage"] = remaining
+        target = max(0.0, float(state.get("target_rom_tonnes") or 0.0))
+        state["shortfall_pct"] = (remaining / target * 100.0) if target > 0 else 0.0
+
+        # 1) ML estimate against the CURRENT (possibly updated) state.
+        best = _best_recovery(bundle, mine_name, state, action)
+        recovery = max(0.0, float(best.get("recovered_tonnage") or 0.0))
+
+        # 2) Recovery safety: never exceed the remaining shortfall.
+        recovery = min(recovery, remaining)
+
+        # 3) Apply estimated recovery, then update the state for the next step.
+        remaining = max(0.0, remaining - recovery)
+        state, state_changes = _apply_action_state_change(state, action, recovery)
+
+        option = options_lookup.get(action, {})
+        reason = option.get("reason") or ACTION_RULE_EXPLANATIONS.get(action, action)
+        scenario_reason = option.get("scenario_reason") or reason
+
+        # DEWATERING is not an immediate recovery (Problem 3): it clears in
+        # the background. The plan still records the estimate; apply_plan()
+        # decides how much counts as "recovered now" via the phase timeline.
+        status = "DELAYED_UNTIL_DEWATERING_COMPLETE" if action == "DEWATERING" else "IMMEDIATE"
+
+        action_sequence.append({
+            "step": idx,
+            "action": action,
+            "expected_recovery_tonnes": round(recovery, 2),
+            "remaining_shortfall": round(remaining, 2),
+            "reason": reason,
+            "scenario_reason": scenario_reason,
+            "state_changes": state_changes,
+            "used_ml_model": best.get("used_ml_model", False),
+            "resources_allocated": best.get("resources_allocated", 0.0),
+            "duration_hours": best.get("duration_hours", 0.0),
+            "action_intensity": best.get("action_intensity", 0.0),
+            "recovery_status": status,
+            "action_cost": ACTION_PROTOTYPE_COST_INR.get(action, 0.0),
+        })
+
+    total_recovery = sum(round(s["expected_recovery_tonnes"], 2) for s in action_sequence)
+    total_cost = sum(float(s.get("action_cost") or 0.0) for s in action_sequence)
+    # Revenue uses the module's existing prototype grade-price reference
+    # (source-pit band). No new/made-up market price is introduced here; the
+    # Rupee Loss Ledger (modules/weather.py) owns the final ₹ figure.
+    revenue_saved = total_recovery * price_per_tonne
+    net_benefit = revenue_saved - total_cost
+
+    assumptions = [
+        "selected-actions evaluated sequentially, each against the state left by the previous action; "
+        "independent ML predictions are intentionally NOT blindly summed.",
+        "state updates between actions are explicit prototype assumptions (DEWATERING lowers rain severity, "
+        "PREVENTIVE_MAINTENANCE/REROUTE_FLEET lower downtime, CONTINGENCY_LABOR lowers the labor drop, "
+        "BLENDING consumes stockpile) — they are NOT learned causal effects.",
+        "every state value is clamped (floor 0 / ceiling 100%) and any predicted recovery above the current "
+        "remaining shortfall is capped at that shortfall.",
+        "action costs are prototype medians from the M4 prototype dataset, not official MOIL figures.",
+        "revenue_saved = total expected recovery x prototype grade-price reference for the source pit; "
+        "final ₹ reckoning belongs to the Rupee Loss Ledger.",
+    ]
+    if bundle is None and model_error:
+        assumptions.append(f"ML model unavailable ({model_error}); recovery used the rule-of-thumb fallback.")
+
+    return {
+        "plan_type": "operator_selected",
+        "recommended_action": plan_recommendation.get("recommended_action"),
+        "selected_actions": list(selected),
+        "action_sequence": action_sequence,
+        "total_expected_recovery_tonnes": round(total_recovery, 2),
+        "final_remaining_shortfall": round(remaining, 2),
+        "total_action_cost": round(total_cost, 2),
+        "revenue_saved": round(revenue_saved, 2),
+        "net_benefit": round(net_benefit, 2),
+        # Backward-compatible top-level aliases (app.py / ledgers read these).
+        "recoverable_tonnage": round(total_recovery, 2),
+        "expected_recovery_tonnes": round(total_recovery, 2),
+        "remaining_shortfall": round(remaining, 2),
+        "shortfall_tonnage": shortfall,
+        "source_pit": (source_pocket or {}).get("name"),
+        "source_grade_pct": (source_pocket or {}).get("grade_pct"),
+        "is_simulated": True,
+        "assumptions": assumptions,
+    }
+
+
+# --------------------------------------------------------------------------
+# PUBLIC API — 3. apply_plan  ("Execute Plan" interaction + phased state)
 # --------------------------------------------------------------------------
 
 def _human_action_label(recommendation: Dict[str, Any]) -> str:
@@ -726,20 +1142,37 @@ def _dewatering_phase(elapsed_sim_hours: float, clearance_hours: float) -> Tuple
     return "DEWATERING_IN_PROGRESS", remaining
 
 
-def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Renders the 'Execute Plan' action card + button and tracks a
-    simulated execution state. This is a prototype simulation only — it does
-    not control any real equipment.
+def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, Any]],
+               selected_actions: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Renders the 'Execute Plan' action card + button and tracks a simulated
+    execution state. Demo-safe prototype ONLY — it never controls any real
+    equipment or external system.
 
-    Returns dict (compatible with the original contract, extended with
-    phased-recovery info):
-        {"execute_clicked": bool, "recovered_tonnage": float,
-         "remaining_shortfall": float, "plan_executed": bool,
-         "dewatering_status": dict | None, "is_simulated": True}
+    Supported plans:
+      * selected_actions given (HITL multiselect) -> simulates the operator's
+        chosen actions sequentially (via calculate_selected_plan), honoring
+        the dewatering background timeline for DEWATERING steps.
+      * selected_actions omitted (existing two-arg call) -> defaults to the
+        AI's single top suggestion, exactly like the previous behaviour.
+
+    Returns dict (compatible with the original contract, extended):
+        {"execute_clicked": bool, "plan_executed": bool,
+         "executed_actions": [...], "per_action_recovery": [...],
+         "recovered_tonnage": float, "remaining_shortfall": float,
+         "dewatering_status": dict | None, "plan": dict | None,
+         "is_simulated": True}
     """
     recommendation = recommendation or {}
     prediction = prediction or {}
     shortfall_tonnage = float(prediction.get("shortfall_tonnage") or 0.0)
+
+    selected = _normalize_selected_actions(selected_actions)
+    if not selected:
+        # Backward-compatible default: if the UI did not ask for specific
+        # actions, fall back to the AI top suggestion (highlight only).
+        top = recommendation.get("recommended_action")
+        if top:
+            selected = [top]
 
     _render_action_card(recommendation)
 
@@ -747,6 +1180,7 @@ def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, An
         st.session_state["m4_plan_executed"] = False
         st.session_state["m4_execution_start_ts"] = None
         st.session_state["m4_execution_snapshot"] = None
+        st.session_state["m4_selected_actions"] = []
 
     execute_clicked = False
     button_label = "🔁 Reset Simulation" if st.session_state["m4_plan_executed"] else "▶ Execute Plan"
@@ -755,14 +1189,17 @@ def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, An
             st.session_state["m4_plan_executed"] = False
             st.session_state["m4_execution_start_ts"] = None
             st.session_state["m4_execution_snapshot"] = None
+            st.session_state["m4_selected_actions"] = []
         else:
             st.session_state["m4_plan_executed"] = True
             st.session_state["m4_execution_start_ts"] = time.time()
             st.session_state["m4_execution_snapshot"] = recommendation
+            st.session_state["m4_selected_actions"] = list(selected)
             execute_clicked = True
 
     plan_executed = st.session_state["m4_plan_executed"]
     snapshot = st.session_state["m4_execution_snapshot"] or recommendation
+    executed_selection = st.session_state.get("m4_selected_actions") or selected
 
     dewatering_status = None
     bg = snapshot.get("background_dewatering") if plan_executed else recommendation.get("background_dewatering")
@@ -783,30 +1220,80 @@ def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, An
             "note": "Simulated using elapsed time compression for demo purposes; no real equipment is controlled.",
         }
 
-    if plan_executed:
-        recommended_action = snapshot.get("recommended_action")
-        # DEWATERING recovery is only counted once the simulated phase reaches
-        # CLEARED; any other primary action counts immediately on Execute Plan.
-        if recommended_action == "DEWATERING" and dewatering_status is not None:
-            if dewatering_status["phase"] == "CLEARED":
-                recovered_tonnage = float(snapshot.get("expected_recovery_tonnes", 0.0))
-            else:
-                recovered_tonnage = 0.0
-        else:
-            recovered_tonnage = float(snapshot.get("expected_recovery_tonnes", 0.0))
+    computed_plan: Optional[Dict[str, Any]] = None
+    per_action_recovery: List[Dict[str, Any]] = []
+    executed_actions: List[str] = []
+    recovered_tonnage = 0.0
 
-        # Action-neutral success message: never hard-codes REROUTE_FLEET, and
-        # never claims dewatering recovery has already happened before CLEARED.
-        dewatering_pending = (
-            recommended_action == "DEWATERING"
-            and dewatering_status is not None
-            and dewatering_status["phase"] != "CLEARED"
-        )
-        st.success(f"Plan executed (simulated): {_human_action_label(snapshot)}.")
-        if dewatering_pending:
-            st.caption("Recovery will be counted after dewatering is complete.")
-        elif recovered_tonnage > 0:
-            st.caption(f"+{recovered_tonnage:.1f} t expected recovery")
+    if plan_executed:
+        # Evaluate the operator-selected plan against the captured scenario
+        # state (guarded: the plan calculator is compute-only and should never
+        # crash the app; on any unexpected failure we fall back to the legacy
+        # single-action behaviour).
+        try:
+            computed_plan = calculate_selected_plan(
+                snapshot, prediction, executed_selection,
+            )
+        except Exception:  # noqa: BLE001
+            computed_plan = None
+
+        if computed_plan and computed_plan.get("action_sequence"):
+            sequence = computed_plan["action_sequence"]
+            executed_actions = [s["action"] for s in sequence]
+            dewatering_pending = (
+                dewatering_status is not None
+                and any(s["action"] == "DEWATERING" for s in sequence)
+                and dewatering_status["phase"] != "CLEARED"
+            )
+            # DEWATERING recovery is only counted once the simulated phase
+            # reaches CLEARED; every other selected action counts immediately.
+            for step in sequence:
+                if step["action"] == "DEWATERING" and dewatering_pending:
+                    continue
+                recovered_tonnage += float(step["expected_recovery_tonnes"])
+                per_action_recovery.append({
+                    "action": step["action"],
+                    "expected_recovery_tonnes": round(float(step["expected_recovery_tonnes"]), 2),
+                    "remaining_shortfall": step["remaining_shortfall"],
+                    "reason": step.get("scenario_reason") or step.get("reason"),
+                    "action_cost": step.get("action_cost", 0.0),
+                    "recovery_status": step.get("recovery_status"),
+                    "used_ml_model": step.get("used_ml_model", False),
+                })
+            recovered_tonnage = max(0.0, min(recovered_tonnage, shortfall_tonnage))
+
+            labels = ", ".join(ACTION_DISPLAY_LABELS.get(a, a) for a in executed_actions) or "—"
+            st.success(f"Operator-selected plan executed (simulated): {labels}.")
+            if dewatering_pending:
+                st.caption("Dewatering recovery will be counted after the simulated clearance completes.")
+            elif recovered_tonnage > 0:
+                st.caption(
+                    f"+{recovered_tonnage:.1f} t expected recovery across {len(sequence)} action(s). "
+                    f"Total plan recovery: +{computed_plan['total_expected_recovery_tonnes']:.1f} t."
+                )
+        else:
+            # Legacy single-action fallback (defensive).
+            recommended_action = snapshot.get("recommended_action")
+            dewatering_pending = (
+                recommended_action == "DEWATERING"
+                and dewatering_status is not None
+                and dewatering_status["phase"] != "CLEARED"
+            )
+            recovered_tonnage = 0.0 if dewatering_pending else float(snapshot.get("expected_recovery_tonnes", 0.0))
+            recovered_tonnage = max(0.0, min(recovered_tonnage, shortfall_tonnage))
+            executed_actions = [recommended_action] if recommended_action else []
+            per_action_recovery = [{
+                "action": recommended_action,
+                "expected_recovery_tonnes": round(recovered_tonnage, 2),
+                "remaining_shortfall": round(shortfall_tonnage - recovered_tonnage, 2),
+                "reason": snapshot.get("reason"), "action_cost": 0.0,
+                "used_ml_model": (snapshot.get("model_info") or {}).get("used_ml_model", False),
+            }]
+            st.success(f"Plan executed (simulated): {_human_action_label(snapshot)}.")
+            if dewatering_pending:
+                st.caption("Recovery will be counted after dewatering is complete.")
+            elif recovered_tonnage > 0:
+                st.caption(f"+{recovered_tonnage:.1f} t expected recovery")
 
         if dewatering_status:
             pit = dewatering_status["pit"]
@@ -819,21 +1306,20 @@ def apply_plan(recommendation: Dict[str, Any], prediction: Optional[Dict[str, An
             else:  # FLOODED
                 message = f"{pit} is flooded — waiting for dewatering"
             st.info(message)
-            # Demo-only time compression, sourced from the live config value so
-            # the displayed ratio always stays in sync with _DEMO_SECONDS_PER_SIMULATED_HOUR.
             st.caption(
                 f"Demo time compression: {_DEMO_SECONDS_PER_SIMULATED_HOUR:g} seconds = 1 simulated hour"
             )
-    else:
-        recovered_tonnage = 0.0
 
     remaining_shortfall = max(0.0, shortfall_tonnage - recovered_tonnage)
 
     return {
         "execute_clicked": execute_clicked,
+        "plan_executed": plan_executed,
+        "executed_actions": executed_actions,
+        "per_action_recovery": per_action_recovery,
         "recovered_tonnage": round(recovered_tonnage, 2),
         "remaining_shortfall": round(remaining_shortfall, 2),
-        "plan_executed": plan_executed,
         "dewatering_status": dewatering_status,
+        "plan": computed_plan,
         "is_simulated": True,
     }
