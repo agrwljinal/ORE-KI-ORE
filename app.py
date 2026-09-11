@@ -58,11 +58,10 @@ pred_results = prediction.predict_weekly_tonnage(
 )
 
 # 2. Spectral Matching (Member 2)
-# Simulating reflectance input from target 0 for baseline execution
-spec_results = spectral.spectral_match(
-    earth_reflectance=C.SAMPLE_EARTH_SPECTRA,
-    isro_baseline=C.ISRO_CLASS_BASELINE_SPECTRA
-)
+# Use the real Bharveli-Awalajhari AOI result (Sentinel-2 scene mean vs.
+# USGS pyrolusite reference) instead of a disconnected placeholder call, so
+# the Confidence Meter and XAI attribution reflect the actual spectral tab.
+spec_results = spectral.build_bharveli_aoi_result()
 
 # 3. Prescriptive Planning (Member 4)
 plan_recommendation = prescriptive.generate_recommendations(

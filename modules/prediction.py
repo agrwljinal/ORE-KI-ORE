@@ -36,6 +36,7 @@ def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
             "labor": float(labor_penalty),
         },
     }
+<<<<<<< HEAD
 
 
 def render_yield_gauge(base_target, predicted_tonnage):
@@ -66,3 +67,5 @@ def render_yield_gauge(base_target, predicted_tonnage):
         title={"text": "Predicted Weekly Tonnage vs Target"},
     ))
     st.plotly_chart(fig, use_container_width=True)
+=======
+>>>>>>> ffb43cbf3c9a56fc234db1eaa79d1df6df611010
