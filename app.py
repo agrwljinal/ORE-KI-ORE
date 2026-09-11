@@ -573,6 +573,36 @@ def get_xai():
         ),
     })
 
+# ---------------------------------------------------------
+# WEATHER API ENDPOINT
+# ---------------------------------------------------------
+try:
+    from modules.weather import WeatherModule
+    weather_module = WeatherModule()
+except ImportError:
+    weather_module = None
+
+@app.route("/api/weather", methods=["GET", "POST"])
+def get_weather():
+    city = request.args.get("city", "Delhi")
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        city = payload.get("city", city)
+
+    if weather_module:
+        # Fetch live weather data using your WeatherModule
+        result = weather_module.service.fetch_live_weather(city)
+        return jsonify(result)
+    
+    # Mock fallback if modules/weather.py is missing
+    return jsonify({
+        "success": True,
+        "city": city,
+        "temp": 28.5,
+        "humidity": 65,
+        "condition": "Haze (Fallback Mode)",
+        "wind_speed": 3.1
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
