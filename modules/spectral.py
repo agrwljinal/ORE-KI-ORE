@@ -199,6 +199,7 @@ def render_aoi_spectral_overlay() -> None:
         st.caption(result["interpretation"])
 
 
+<<<<<<< HEAD
 # ===========================================================================
 # Per-zone spectral extraction + mineral-reference registry
 # ---------------------------------------------------------------------------
@@ -351,3 +352,6 @@ __all__ = [
     "ZONE_REFLECTANCE_PROVENANCE_SYNTHETIC",
     "ZONE_REFLECTANCE_PROVENANCE_UNAVAILABLE",
 ]
+=======
+__all__ = ["build_aoi_overlay_map", "build_bharveli_aoi_result", "command_header_html", "load_aoi_kml", "render_aoi_spectral_overlay", "render_spectral_chart", "spectral_match"]
+>>>>>>> ab8d539bf6e2fff0a189b245984865cd621aa388
