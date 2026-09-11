@@ -450,6 +450,7 @@ function getControls() {
     mtbf_hrs: parseFloat(document.getElementById("slider-mtbf").value),
     labor_drop_pct: parseFloat(document.getElementById("slider-labor").value),
     target_tonnage: parseInt(document.getElementById("input-target").value, 10),
+    ore_grade: document.getElementById("ore-grade-mix").value || "STD",
   };
 }
 
@@ -483,25 +484,110 @@ function updateExecuteButtons() {
   if (reset) reset.disabled = !planExecuted;
 }
 
+// Single derived-state rule mirrored from the backend (items 4/5):
+// predicted >= target -> GREEN TARGET EXCEEDED; >=0.9 -> AMBER ON TRACK; else RED.
+function deriveBannerState(predicted, target, recovered, planExecuted, mitigationCount) {
+  const pred = Number(predicted) || 0;
+  const tgt = Number(target) || 0;
+  const effective = pred + (Number(recovered) || 0);
+  const ratio = tgt > 0 ? effective / tgt : 0;
+  let tier, bannerClass, headline, simState;
+  if (effective >= tgt) {
+    tier = "target_exceeded";
+    bannerClass = "ok";
+    headline = "TARGET EXCEEDED — SURPLUS PROJECTED";
+    simState = "OPTIMAL — TARGET SECURED";
+  } else if (ratio >= 0.9) {
+    tier = "on_track";
+    bannerClass = "warn";
+    headline = "ON TRACK — MINOR VARIANCE";
+    simState = planExecuted || mitigationCount > 0 ? "MITIGATING" : "UNMITIGATED RISK";
+  } else {
+    tier = "shortfall";
+    bannerClass = "danger";
+    headline = "SHORTFALL ALERT";
+    simState = planExecuted || mitigationCount > 0 ? "MITIGATING" : "UNMITIGATED RISK";
+  }
+  const gap = effective - tgt;
+  const rate = 3808.49; // MN rate ₹/ton (kept in sync for the live preview only)
+  if (gap < 0) {
+    return { tier, bannerClass, headline, simState, gap, shortfall: Math.max(0, -gap),
+      ledgerLabel: "Rupee Loss Ledger", ledgerAmount: -gap * rate, ledgerClass: "text-red" };
+  }
+  return { tier, bannerClass, headline, simState, gap, shortfall: 0,
+    ledgerLabel: "Rupee Gain Ledger", ledgerAmount: gap * rate, ledgerClass: "text-green" };
+}
+
+function applyBannerState(state) {
+  const hero = document.getElementById("hero-banner");
+  if (hero) {
+    hero.classList.remove("deficit-hero-card-ok", "deficit-hero-card-warn", "deficit-hero-card-danger");
+    if (state.bannerClass) hero.classList.add(`deficit-hero-card-${state.bannerClass}`);
+  }
+  const label = document.getElementById("hero-shortfall-title");
+  if (label) {
+    label.textContent = state.headline +
+      (state.shortfall > 0 ? `: ${fmtNum(state.shortfall)} MT DEFICIT PREDICTED` : "");
+  }
+  const ledgerLabel = document.getElementById("hero-loss-label");
+  if (ledgerLabel) ledgerLabel.textContent = state.ledgerLabel;
+  const ledgerVal = document.getElementById("hero-loss-val");
+  if (ledgerVal) {
+    ledgerVal.textContent = `₹${fmtNum(state.ledgerAmount / 1e7, 2)} Cr`;
+    ledgerVal.className = `hero-sub-value ${state.ledgerClass}`;
+  }
+  const sim = document.getElementById("hero-sim-state");
+  if (sim) sim.textContent = state.simState;
+}
+
+let lastBasePrediction = null; // { predicted, target, ore_grade } for live checkbox previews
+
 function renderPrediction(data) {
   const prediction = data.prediction || {};
   const params = data.parameters || {};
   const shortfall = Number(prediction.shortfall_tons) || Number(prediction.shortfall_tonnage) || 0;
   const predicted = Number(prediction.predicted_output) || Number(prediction.predicted_tonnage) || 0;
   const target = Number(prediction.base_target) || Number(params.target_tonnage) || 0;
-  const lossCr = Number(prediction.loss_crores) || 0;
 
-  document.getElementById("hero-shortfall-title").textContent =
-    shortfall > 0
-      ? `SHORTFALL ALERT: ${fmtNum(shortfall)} MT DEFICIT PREDICTED`
-      : "TARGET ON TRACK";
-  document.getElementById("hero-loss-val").textContent = `₹${fmtNum(lossCr, 2)} Cr`;
+  lastBasePrediction = { predicted, target };
+
+  const banner = prediction.banner
+    ? {
+        bannerClass: prediction.banner.banner_class,
+        headline: prediction.banner.headline,
+        shortfall: prediction.banner.remaining_shortfall_tonnes,
+        ledgerLabel: prediction.banner.ledger_label,
+        ledgerAmount: prediction.banner.ledger_amount_inr,
+        ledgerClass: prediction.banner.ledger_class,
+        simState: prediction.banner.simulation_state,
+      }
+    : deriveBannerState(predicted, target, 0, false, 0);
+  applyBannerState(banner);
+
   document.getElementById("hero-output-val").textContent = fmtTons(predicted);
   document.getElementById("hero-target-val").textContent = fmtTons(target);
-  document.getElementById("hero-sim-state").textContent = data.simulation_state || "UNMITIGATED RISK";
 
   planExecuted = !!data.plan_executed;
   updateExecuteButtons();
+}
+
+// Live feedback: toggling a recommendation checkbox feeds its MT recovery into
+// the predicted output and cascades through the same derived-state rule (item 6).
+function previewOptimizedBanner() {
+  const checks = Array.from(
+    document.querySelectorAll("#recommendations-container input.rec-checkbox:checked"),
+  );
+  const recovery = checks.reduce((sum, el) => sum + (Number(el.dataset.recoveryMt) || 0), 0);
+  const latest = lastBasePrediction || { predicted: 0, target: 0 };
+  if (!document.getElementById("hero-banner")) return;
+  const state = deriveBannerState(
+    latest.predicted,
+    latest.target,
+    recovery,
+    planExecuted,
+    checks.length,
+  );
+  applyBannerState(state);
 }
 
 // ---------------- PRESCRIPTIVE EXECUTION ----------------
@@ -513,7 +599,9 @@ function buildRecItem(opt) {
   checkbox.type = "checkbox";
   checkbox.className = "rec-checkbox";
   checkbox.dataset.action = opt.action_code || opt.action || "";
+  checkbox.dataset.recoveryMt = String(opt.expected_recovery_tonnes || 0);
   checkbox.checked = opt.expected_recovery_tonnes > 0;
+  checkbox.addEventListener("change", previewOptimizedBanner);
   item.appendChild(checkbox);
 
   const content = document.createElement("div");
@@ -994,6 +1082,8 @@ function bindControls() {
     el.addEventListener("input", () => updateControlBadges(getControls()));
     el.addEventListener("change", () => refreshAll());
   });
+  const grade = document.getElementById("ore-grade-mix");
+  if (grade) grade.addEventListener("change", () => refreshAll());
   const execute = document.getElementById("btn-execute-plan");
   const reset = document.getElementById("btn-reset-plan");
   if (execute) execute.addEventListener("click", onExecute);

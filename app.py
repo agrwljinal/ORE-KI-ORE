@@ -26,9 +26,51 @@ except ImportError:
         ISRO_CLASS_BASELINE_SPECTRA = [0.11, 0.19, 0.25, 0.37, 0.41, 0.38, 0.30, 0.21]
 
 try:
-    from modules.prediction import predict_weekly_tonnage, predict_shortfall_with_model
+    from modules.prediction import (
+        predict_weekly_tonnage,
+        predict_shortfall_with_model,
+        derive_banner_state,
+    )
 except ImportError:
     predict_shortfall_with_model = None
+
+    def derive_banner_state(predicted_tonnage, target_tonnage, recovered_tonnage=0.0,
+                            plan_executed=False, mitigation_counts=0):
+        predicted = max(0.0, float(predicted_tonnage))
+        target = max(0.0, float(target_tonnage))
+        predicted_final = predicted + max(0.0, float(recovered_tonnage))
+        ratio = (predicted_final / target) if target > 0 else 0.0
+        if predicted_final >= target:
+            tier, banner_class = "target_exceeded", "ok"
+            headline = "TARGET EXCEEDED — SURPLUS PROJECTED"
+            sim_state = "OPTIMAL — TARGET SECURED"
+        elif ratio >= 0.90:
+            tier, banner_class = "on_track", "warn"
+            headline = "ON TRACK — MINOR VARIANCE"
+            sim_state = "UNMITIGATED RISK"
+        else:
+            tier, banner_class = "shortfall", "danger"
+            headline = "SHORTFALL ALERT"
+            sim_state = "UNMITIGATED RISK"
+        gap_tonnes = predicted_final - target
+        if gap_tonnes < 0:
+            ledger_amount_inr, ledger_label, ledger_class = (
+                (-gap_tonnes) * C.MN_RATE_PER_TON_INR, "Rupee Loss Ledger", "text-red")
+        else:
+            ledger_amount_inr, ledger_label, ledger_class = (
+                gap_tonnes * C.MN_RATE_PER_TON_INR, "Rupee Gain Ledger", "text-green")
+        return {
+            "tier": tier, "banner_class": banner_class, "headline": headline,
+            "simulation_state": sim_state, "ratio_pct": round(ratio * 100.0, 1),
+            "gap_tonnes": round(gap_tonnes, 2),
+            "remaining_shortfall_tonnes": round(max(0.0, -gap_tonnes), 2),
+            "ledger_label": ledger_label,
+            "ledger_amount_inr": round(ledger_amount_inr, 2),
+            "ledger_crores": round(ledger_amount_inr / 1e7, 4),
+            "ledger_class": ledger_class,
+            "plan_executed": bool(plan_executed),
+            "recovery_tonnes_applied": round(float(recovered_tonnage), 2),
+        }
 
     def predict_weekly_tonnage(base_target, rainfall_mm, mtbf_hrs, labor_drop_pct):
         weather_penalty = rainfall_mm * 14.5
@@ -191,6 +233,7 @@ SYSTEM_STATE = {
     "mtbf_hrs": 26.0,
     "labor_drop_pct": 18.0,
     "target_tonnage": C.BASE_WEEKLY_TARGET_TONS,
+    "ore_grade": "STD",
     "selected_site": "Balaghat Sector 4",
     "mine_name": None,
     "selected_actions": None,
@@ -206,11 +249,22 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
     predicted = float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0)
     shortfall = float(raw_pred.get("shortfall_tonnage") or raw_pred.get("shortfall_tons") or 0.0)
     plan_applied = plan_result is not None
+    recovered = 0.0
     if plan_result is not None:
-        recovery = min(float(plan_result.get("total_expected_recovery_tonnes") or 0.0), shortfall)
-        predicted = min(base_target, predicted + recovery)
+        recovered = min(float(plan_result.get("total_expected_recovery_tonnes") or 0.0), shortfall)
+        predicted = min(base_target, predicted + recovered)
         shortfall = max(0.0, base_target - predicted)
-    rupee_loss = round(shortfall * float(C.MN_RATE_PER_TON_INR), 2)
+
+    # Single derived-state rule (items 4 & 5): banner, sim-state and the rupee
+    # ledger all come from ONE live predicted-output comparison.
+    state = derive_banner_state(
+        predicted,
+        base_target,
+        recovered_tonnage=recovered,
+        plan_executed=plan_applied,
+        mitigation_counts=1 if plan_applied else 0,
+    )
+    rupee_loss = round(shortfall * float(C.MN_COST_PER_TON_INR), 2)
     return {
         "base_target": round(base_target, 2),
         "predicted_tonnage": round(predicted, 2),
@@ -218,10 +272,21 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
         "predicted_output": round(predicted, 2),
         "shortfall_tons": round(shortfall, 2),
         "penalties": raw_pred.get("penalties") or {},
+        "factors": raw_pred.get("factors") or {},
         "model_used": raw_pred.get("model_used"),
+        "ore_grade": raw_pred.get("ore_grade", SYSTEM_STATE.get("ore_grade", "STD")),
+        "fleet_capacity_baseline": raw_pred.get("fleet_capacity_baseline"),
         "honesty_notes": raw_pred.get("honesty_notes") or [],
         "rupee_loss_inr": rupee_loss,
         "loss_crores": round(rupee_loss / 1e7, 2),
+        "banner": state,
+        "simulation_state": state["simulation_state"],
+        "headline": state["headline"],
+        "banner_class": state["banner_class"],
+        "ledger_label": state["ledger_label"],
+        "ledger_amount_inr": state["ledger_amount_inr"],
+        "ledger_crores": state["ledger_crores"],
+        "ledger_class": state["ledger_class"],
         "plan_applied": plan_applied,
     }
 
@@ -232,12 +297,14 @@ def _current_params():
         "mtbf_hrs": SYSTEM_STATE["mtbf_hrs"],
         "labor_drop_pct": SYSTEM_STATE["labor_drop_pct"],
         "target_tonnage": SYSTEM_STATE["target_tonnage"],
+        "ore_grade": SYSTEM_STATE.get("ore_grade", "STD"),
+        "fleet_capacity_baseline": float(getattr(C, "FLEET_CAPACITY_BASELINE_TONS", 14500.0)),
     }
 
 
 def _make_prediction():
-    """Predict shortfall using the trained 13-feature model when available;
-    falls back to the deterministic formula otherwise."""
+    """Predict shortfall using the multiplicative factor model (trained-model
+    weights when available; deterministic constants otherwise)."""
     if predict_shortfall_with_model is not None:
         return predict_shortfall_with_model(
             base_target=SYSTEM_STATE["target_tonnage"],
@@ -245,6 +312,8 @@ def _make_prediction():
             mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
             labor_drop_pct=SYSTEM_STATE["labor_drop_pct"],
             mine_name=SYSTEM_STATE.get("mine_name") or None,
+            ore_grade=SYSTEM_STATE.get("ore_grade", "STD"),
+            fleet_capacity_baseline=float(getattr(C, "FLEET_CAPACITY_BASELINE_TONS", 14500.0)),
         )
     return predict_weekly_tonnage(
         base_target=SYSTEM_STATE["target_tonnage"],
@@ -368,7 +437,18 @@ def _shape_execution(plan_result, shortfall_tonnes=None):
 
 
 def _simulation_state():
-    return "OPTIMIZED (PLAN ACTIVE)" if SYSTEM_STATE["plan_executed"] else "UNMITIGATED RISK"
+    """Derive the simulation-state label from the CURRENT live predicted output
+    vs target (item 4). Falls back to a plan-executed marker when no prediction
+    state is available."""
+    raw = _make_prediction()
+    predicted = float(raw.get("predicted_tonnage") or raw.get("predicted_output") or 0.0)
+    state = derive_banner_state(
+        predicted,
+        SYSTEM_STATE["target_tonnage"],
+        plan_executed=SYSTEM_STATE["plan_executed"],
+        mitigation_counts=1 if SYSTEM_STATE["plan_executed"] else 0,
+    )
+    return state["simulation_state"]
 
 
 def _build_prescriptive_response(raw_pred, recs, plan_result=None):
@@ -382,16 +462,31 @@ def _build_prescriptive_response(raw_pred, recs, plan_result=None):
         recovered = round(min(float(execution.get("total_expected_recovery_tonnes") or 0.0), shortfall), 2)
         remaining = round(max(0.0, shortfall - recovered), 2)
         total_rec_gain = recovered
+    # Single derived-state rule for the prescriptive panel too (item 4/5).
+    state = derive_banner_state(
+        float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0),
+        SYSTEM_STATE["target_tonnage"],
+        recovered_tonnage=recovered,
+        plan_executed=SYSTEM_STATE["plan_executed"],
+        mitigation_counts=1 if SYSTEM_STATE["plan_executed"] else 0,
+    )
     response = {
         "status": "success",
         "plan_executed": SYSTEM_STATE["plan_executed"],
-        "simulation_state": _simulation_state(),
+        "simulation_state": state["simulation_state"],
         "parameters": _current_params(),
         "recommendation": shaped,
         "shortfall_tonnage": shortfall,
         "recovered_tonnage": recovered,
         "remaining_shortfall": remaining,
         "total_rec_gain": total_rec_gain,
+        "banner": state,
+        "headline": state["headline"],
+        "banner_class": state["banner_class"],
+        "ledger_label": state["ledger_label"],
+        "ledger_amount_inr": state["ledger_amount_inr"],
+        "ledger_crores": state["ledger_crores"],
+        "ledger_class": state["ledger_class"],
     }
     if execution:
         response["execution"] = execution
@@ -484,15 +579,22 @@ def handle_predictions():
             target = float(payload.get("target_tonnage", SYSTEM_STATE["target_tonnage"]))
             if not all(math.isfinite(value) for value in (rainfall, mtbf, labor, target)):
                 raise ValueError("non-finite values are not allowed")
-            if rainfall < 0 or mtbf < 0 or not 0 <= labor <= 100 or target <= 0:
-                return jsonify({
-                    "status": "error",
-                    "message": "Invalid range: rainfall and MTBF must be non-negative, labor must be 0–100%, and target must be positive.",
-                }), 400
+            if rainfall < 0:
+                raise ValueError("rainfall must be non-negative")
+            if mtbf < 5:
+                mtbf = 5.0  # item 7: MTBF floored at 5 hrs
+            if labor < 0 or labor > 50:
+                labor = max(0.0, min(50.0, labor))  # item 7: labor deficit capped at 50%
+            if target <= 0:
+                raise ValueError("target must be positive")
+            ore_grade = str(payload.get("ore_grade", SYSTEM_STATE.get("ore_grade", "STD"))).upper()
+            if ore_grade not in getattr(C, "ORE_GRADE_FACTORS", {"STD": 1.0}):
+                raise ValueError(f"unknown ore grade '{ore_grade}'")
             SYSTEM_STATE["rainfall_mm"] = rainfall
             SYSTEM_STATE["mtbf_hrs"] = mtbf
             SYSTEM_STATE["labor_drop_pct"] = labor
             SYSTEM_STATE["target_tonnage"] = target
+            SYSTEM_STATE["ore_grade"] = ore_grade
             SYSTEM_STATE["mine_name"] = payload.get("mine_name", SYSTEM_STATE.get("mine_name")) or None
         except (TypeError, ValueError):
             return jsonify({
@@ -515,12 +617,13 @@ def handle_predictions():
             except Exception:  # noqa: BLE001 - plan engine must never take the API down
                 plan_result = None
 
+    view = _prediction_view(raw_pred, SYSTEM_STATE["target_tonnage"], plan_result)
     return jsonify({
         "status": "success",
         "parameters": _current_params(),
-        "simulation_state": _simulation_state(),
+        "simulation_state": view["simulation_state"],
         "plan_executed": SYSTEM_STATE["plan_executed"],
-        "prediction": _prediction_view(raw_pred, SYSTEM_STATE["target_tonnage"], plan_result),
+        "prediction": view,
         "plan": _shape_execution(plan_result)
     })
 

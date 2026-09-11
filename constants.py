@@ -18,7 +18,32 @@ APP_TITLE = "MOIL Mining & Financial Risk Intelligence Command Center"
 
 # Weekly production target used as the default in the dashboard and as the
 # feature-scale input for the prediction pipeline. Frontend default is 14500 MT.
+# NOTE: per item 1 of the model refactor, this target is ONLY ever used for
+# comparison AFTER the output calculation. It never appears inside the
+# predicted-output formula.
 BASE_WEEKLY_TARGET_TONS = 14500.0
+
+# Fleet capacity baseline (Member 3 - item 1 refactor).
+# Independent, fixed reference for the fleet's realistic best-case weekly
+# output. Derived from the historical best-realistic output in
+# data/processed_production.csv (weekly realized best ~12,200 MT, weekly
+# target best ~13,000 MT; the 14,500 figure is the fleet's capacity target).
+# predictedOutput is computed ONLY from this baseline times the operating
+# factors (rainfall x uptime x labor x ore grade). The monthly/weekly target
+# (BASE_WEEKLY_TARGET_TONS + user slider) is used only afterwards for the
+# shortfall / ledger comparison.
+FLEET_CAPACITY_BASELINE_TONS = 14500.0
+
+# Ore-grade multipliers (item 3). Illustrative until real assay data replaces
+# them. Applied as an independent multiplicative factor on predicted output.
+#   HG  = Grade High (44-46% Mn) -> 1.10
+#   STD = Grade Standard (38-42% Mn) -> 1.00 (baseline)
+#   FB  = Ferro Blend (34-37% Mn) -> 0.88
+ORE_GRADE_FACTORS = {
+    "HG": 1.10,
+    "STD": 1.00,
+    "FB": 0.88,
+}
 
 # Recentred on the real Bharveli-Awalajhari AOI mid-point (KML bounds
 # ~21.83-21.86 lat, 80.21-80.25 lon).
@@ -36,6 +61,28 @@ ORE_POCKETS = [
 # TODO(M5): replace with the real reference Mn ore rate (see
 # reference_price_inr_per_t in processed_geology.csv for a real IBM figure).
 MN_RATE_PER_TON_INR = 3808.49
+
+# Rupee Gain/Loss ledger rates (item 5 of the prediction refactor).
+# The ledger is now derived from the LIVE predicted output vs target gap:
+#   loss = (target - predicted) * MN_COST_PER_TON_INR   shown as a loss (red)
+#   gain = (predicted - target) * MN_PRICE_PER_TON_INR  shown as a gain (green)
+# cost and price are intentionally separate knobs; a real finance team can
+# set them to the actual per-ton production cost and the realized Mn price.
+MN_COST_PER_TON_INR = 3808.49
+MN_PRICE_PER_TON_INR = 3808.49
+
+# Banner tiers (single derived-state rule, item 4).
+# Derived from the live (post-recovery) predicted output vs the target:
+TIER_TARGET_EXCEEDED_RATIO = 1.0   # predicted >= target  -> GREEN "TARGET EXCEEDED"
+TIER_ON_TRACK_RATIO = 0.90         # predicted >= 90%      -> AMBER "ON TRACK / MINOR VARIANCE"
+TIER_ON_TRACK_LABEL = "ON TRACK — MINOR VARIANCE"
+TIER_TARGET_EXCEEDED_LABEL = "TARGET EXCEEDED — SURPLUS PROJECTED"
+TIER_SHORTFALL_LABEL = "SHORTFALL ALERT"
+SIM_STATE_LABELS = {
+    "unmitigated": "UNMITIGATED RISK",   # ratio < 90% and no mitigation selected
+    "mitigating": "MITIGATING",          # recovery actions selected but tail still short
+    "optimal": "OPTIMAL — TARGET SECURED",  # at/above target, or fully mitigated
+}
 
 
 # ---------------------------------------------------------------------------

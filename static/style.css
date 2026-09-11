@@ -150,6 +150,31 @@ body {
     box-shadow: 0 4px 24px rgba(239, 68, 68, 0.15);
 }
 
+/* Banner state variants driven by the single derived-state rule (items 4/5) */
+.deficit-hero-card.deficit-hero-card-ok {
+    background: linear-gradient(90deg, #06231A 0%, #04231B 100%);
+    border: 1px solid #10B981;
+    box-shadow: 0 4px 24px rgba(16, 185, 129, 0.18);
+}
+.deficit-hero-card.deficit-hero-card-ok .deficit-tagline,
+.deficit-hero-card.deficit-hero-card-ok .hero-sub-label {
+    color: #6EE7B7;
+}
+.deficit-hero-card.deficit-hero-card-warn {
+    background: linear-gradient(90deg, #2B2006 0%, #241A04 100%);
+    border: 1px solid #F59E0B;
+    box-shadow: 0 4px 24px rgba(245, 158, 11, 0.18);
+}
+.deficit-hero-card.deficit-hero-card-warn .deficit-tagline,
+.deficit-hero-card.deficit-hero-card-warn .hero-sub-label {
+    color: #FCD34D;
+}
+.deficit-hero-card.deficit-hero-card-danger {
+    background: linear-gradient(90deg, var(--color-red-bg) 0%, #1A0709 100%);
+    border: 1px solid var(--color-red-primary);
+    box-shadow: 0 4px 24px rgba(239, 68, 68, 0.15);
+}
+
 .deficit-heading-wrap {
     display: flex;
     flex-direction: column;
@@ -168,6 +193,25 @@ body {
     font-weight: 900;
     color: #FFFFFF;
     letter-spacing: -0.2px;
+}
+
+.best-case-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: monospace;
+    letter-spacing: 0.2px;
+}
+.best-case-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10B981;
+    box-shadow: 0 0 6px #10B981;
+    flex-shrink: 0;
 }
 
 .hero-metric-quad {
