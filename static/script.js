@@ -167,22 +167,22 @@ function confirmationTier(spectralSimilarity) {
 // Mining-suitability colour language, derived from the pyrolusite spectral
 // similarity. This is the ONE colour meaning used by zone orbs, energy halos
 // and the map legend:
-//   GREEN = suitable for mining (strong spectral match)
-//   AMBER = uncertain, further analysis needed (weak match)
-//   RED   = not suitable (spectral mismatch)
+//   GREEN = highest spatial prospectivity (best mining potential)
+//   AMBER = medium prospectivity (review)
+//   RED   = lowest spatial prospectivity (least potential)
 // Operational status is never coloured on these surfaces - it is text-only.
-const SUITABILITY_META = {
-  suitable:   { label: "SUITABLE FOR MINING", color: "#10B981", glow: "rgba(16, 185, 129, 0.70)" },
-  uncertain:  { label: "UNCERTAIN",           color: "#F59E0B", glow: "rgba(245, 158, 11, 0.70)" },
-  unsuitable: { label: "NOT SUITABLE",        color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
-  unknown:    { label: "SCORE WITHHELD",      color: "#94A3B8", glow: "rgba(148, 163, 184, 0.65)" },
+const PROSPECTIVITY_META = {
+  high:   { label: "HIGH PROSPECTIVITY",  color: "#10B981", glow: "rgba(16, 185, 129, 0.70)" },
+  medium: { label: "MEDIUM PROSPECTIVITY", color: "#F59E0B", glow: "rgba(245, 158, 11, 0.70)" },
+  low:    { label: "LOW PROSPECTIVITY",   color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
+  unknown:{ label: "NO DATA",             color: "#94A3B8", glow: "rgba(148, 163, 184, 0.65)" },
 };
-function suitabilityStyle(z) {
-  const sim = z && z.spectral_similarity;
-  if (sim === null || sim === undefined) return SUITABILITY_META.unknown;
-  if (Number(sim) >= 94) return SUITABILITY_META.suitable;
-  if (Number(sim) >= 88) return SUITABILITY_META.uncertain;
-  return SUITABILITY_META.unsuitable;
+function prospectivityStyle(z) {
+  const band = String(z && (z.spatial_priority_band || "")).toUpperCase();
+  if (band === "HIGH") return PROSPECTIVITY_META.high;
+  if (band === "MEDIUM") return PROSPECTIVITY_META.medium;
+  if (band === "LOW") return PROSPECTIVITY_META.low;
+  return PROSPECTIVITY_META.unknown;
 }
 
 // Production impact / priority labels (HIGH / MEDIUM / REVIEW / LOW) are
@@ -353,9 +353,9 @@ async function loadZones(demo = false) {
   data.zones.forEach((z) => {
     const lat = z.latitude;
     const lon = z.longitude;
-    // Orb colour speaks MINING SUITABILITY (green/amber/red by spectral
-    // match). Operational status is text-only in the tooltip and zone panel.
-    const st = suitabilityStyle(z);
+    // Orb colour speaks SPATIAL PROSPECTIVITY (green = HIGH, amber = MEDIUM,
+    // red = LOW). Operational status is text-only in the tooltip/panel.
+    const st = prospectivityStyle(z);
 
     // Soft expanding halo ring behind the orb (subtle pulse).
     L.marker([lat, lon], {
@@ -411,9 +411,9 @@ async function loadZones(demo = false) {
 // no mineral match, no fused score. The toggle is the single source of truth.
 function buildZoneTip(z) {
   const status = zoneStatus(z);
-  const suit = suitabilityStyle(z);
+  const pros = prospectivityStyle(z);
   let rows =
-    `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")}</strong></div>`;
+    `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong style="color:${pros.color}">${fmt(z.spatial_score, "%")} — ${z.spatial_priority_band || "—"}</strong></div>`;
   let overall = isFinite(Number(z.spatial_score)) ? Number(z.spatial_score) : 0;
   let band = z.spatial_priority_band || "—";
   if (screeningActive) {
@@ -422,8 +422,7 @@ function buildZoneTip(z) {
         ? "N/A"
         : fmt(z.spectral_similarity, "%");
     rows +=
-      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>` +
-      `<div class="zone-orb-tip-row"><span>Mining Suitability</span><strong style="color:${suit.color}">${suit.label}</strong></div>`;
+      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>`;
     overall = isFinite(Number(z.final_exploration_score))
       ? Number(z.final_exploration_score)
       : Number(z.spatial_score);
@@ -433,7 +432,7 @@ function buildZoneTip(z) {
     `<div class="zone-orb-tip">` +
     `<div class="zone-orb-tip-title">${z.name}</div>` +
     // Operational status is TEXT ONLY - colours on the map always mean
-    // mining suitability, so status must never be colour-coded here.
+    // spatial prospectivity, so status must never be colour-coded here.
     `<div class="zone-orb-tip-status">${status}</div>` +
     rows +
     `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${band}</strong></div>` +
@@ -999,10 +998,10 @@ async function runScreeningReveal() {
 }
 
 function addEnergyHalo(z) {
-  // Halo colour speaks MINING SUITABILITY: green = suitable, amber =
-  // uncertain, red = not suitable - always matching the zone orb's spectral
-  // similarity. The label carries the tier + similarity %.
-  const st = suitabilityStyle(z);
+  // Halo colour speaks the SAME SPATIAL PROSPECTIVITY scale as the zone orb
+  // it surrounds (green = HIGH, amber = MEDIUM, red = LOW). The label still
+  // carries the spectral similarity tier + %.
+  const st = prospectivityStyle(z);
   const sim = z.spectral_similarity;
   const withheld = sim === null || sim === undefined;
   const radius = 48 + Math.round(((sim || 0) / 100) * 56); // 48..104 px
@@ -1116,8 +1115,12 @@ async function showZoneDetail(zoneId) {
   $("zp-recommended-action").textContent = action;
 
   // SPATIAL PROSPECTIVITY
+  const pros = prospectivityStyle(z);
   $("zp-spatial").textContent = fmt(z.spatial_score, "%");
-  $("zp-spatial-band").textContent = z.spatial_priority_band;
+  const zpBand = $("zp-spatial-band");
+  zpBand.textContent = z.spatial_priority_band;
+  // Colour the band on the same green/amber/red prospectivity scale as the pin.
+  zpBand.style.color = pros.color;
   $("zp-spatial-reason").textContent =
     `Spatial screening identifies this as a ${String(z.spatial_priority_band || "unavailable").toLowerCase()} prospectivity zone.`;
 

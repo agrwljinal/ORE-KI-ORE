@@ -2109,9 +2109,9 @@ label {
 .swatch-monitor { width: 10px; height: 10px; border-radius: 50%; background: #E2E8F0;
   border: 1.5px solid #64748B; }
 .swatch-boundary { background: #E879F9; height: 3px; border-radius: 2px; box-shadow: 0 0 6px rgba(232, 121, 249, 0.7); }
-.swatch-suitable { background: #10B981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.7); }
-.swatch-uncertain { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
-.swatch-unsuitable { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.swatch-high { background: #10B981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.7); }
+.swatch-medium { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+.swatch-low { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
 
 .map-expand-modal { position: fixed; inset: 0; z-index: 5000;
   display: flex; align-items: center; justify-content: center; }
