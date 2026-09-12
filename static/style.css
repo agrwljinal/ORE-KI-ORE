@@ -586,6 +586,21 @@ label {
     border: 1px solid var(--border-color);
     border-radius: 5px;
     padding: 9px 12px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.pit-box:hover {
+    border-color: #38BDF8;
+    background: rgba(56, 189, 248, 0.06);
+}
+.pit-box:focus-visible {
+    outline: 2px solid #38BDF8;
+    outline-offset: 2px;
+}
+.pit-box.pit-selected {
+    border-color: #38BDF8;
+    background: rgba(56, 189, 248, 0.1);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
 .pit-name {
@@ -610,29 +625,91 @@ label {
     margin-top: 2px;
 }
 
-/* Mandated Spectral Strip */
-.spec-compliance-card {
+/* Dynamic zone spectral card */
+.spec-compliance-card.spectral-card {
     background: #0B1322;
-    border: 1px solid #1D4ED8;
+    border: 1px solid #1E293B;
     border-radius: 6px;
-    padding: 10px 14px;
+    padding: 12px 14px;
 }
 
-.spec-match-title {
+.spectral-empty {
+    padding: 14px 8px;
+    text-align: center;
+}
+.spectral-empty-title {
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #64748B;
+    text-transform: uppercase;
+}
+.spectral-empty-sub {
+    font-size: 11px;
+    color: #94A3B8;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.spectral-filled {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.spectral-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.spectral-head-score {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    flex: none;
+    padding-right: 16px;
+    border-right: 1px dashed #334155;
+}
+.spectral-pct {
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1;
+    color: #F8FAFC;
+    letter-spacing: -0.5px;
+}
+.spectral-pct-unit {
+    font-size: 15px;
+    font-weight: 900;
+    color: #38BDF8;
+}
+.spectral-head-copy {
+    min-width: 0;
+}
+.spectral-title {
     font-size: 12px;
     font-weight: 800;
+    letter-spacing: 0.7px;
     color: #38BDF8;
+}
+.spectral-zone {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #F1F5F9;
+    margin-top: 2px;
+}
+.spectral-tier {
+    font-size: 10px;
+    font-weight: 800;
     letter-spacing: 0.5px;
+    margin-top: 3px;
 }
 
-.spec-meta-tags {
+.spectral-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 6px;
 }
-
-.spec-tag {
+.spectral-tags .spec-tag {
     background: #172554;
     color: #93C5FD;
     font-size: 9.5px;
@@ -642,18 +719,68 @@ label {
     border: 1px solid #1E40AF;
 }
 
-.spec-chart-container {
-    margin-top: 8px;
-    background: #070B12;
-    border: 1px solid #1E293B;
-    border-radius: 4px;
-    padding: 6px;
+.spectral-desc {
+    font-size: 11px;
+    color: #CBD5E1;
+    line-height: 1.5;
 }
 
-#spectralCanvas {
+.spectral-chart {
+    background: #070B12;
+    border: 1px solid #1E293B;
+    border-radius: 5px;
+    padding: 8px 10px 4px;
+}
+.spectral-chart-title {
+    font-size: 9.5px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    color: #64748B;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.spectral-svg {
     width: 100%;
-    height: 65px;
+    height: auto;
     display: block;
+}
+.spectral-chart-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 4px;
+    justify-content: center;
+    font-size: 9.5px;
+    color: #94A3B8;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+.chart-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.legend-line-line {
+    display: inline-block;
+    width: 18px;
+    height: 0;
+    border-top: 2px solid;
+}
+.legend-line-line.zone { border-color: #22D3EE; }
+.legend-line-line.ref  { border-color: #A78BFA; }
+
+.spectral-provenance {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #64748B;
+    text-transform: uppercase;
+}
+.spectral-footnote {
+    font-size: 9.5px;
+    color: #64748B;
+    font-style: italic;
+    border-top: 1px dashed #1E293B;
+    padding-top: 5px;
 }
 
 /* XAI Progress Rows */
@@ -844,11 +971,30 @@ label {
 }
 
 /* Telemetry markers */
-.telemetry-marker { background: transparent !important; border: none !important;}
+.telemetry-marker { background: transparent !important; border: none !important; }
 .telemetry-dot {
-  width: 22px; height: 22px; background: #F59E0B; color: #000; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; box-shadow: 0 0 10px rgba(245,158,11,0.6); font-weight: 900;
+  position: relative;
+  width: 18px; height: 18px;
+  background: var(--dot-color, #F59E0B);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  box-shadow: 0 0 10px 1px var(--dot-glow, rgba(245, 158, 11, 0.6));
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.telemetry-dot:hover { transform: scale(1.18); }
+.telemetry-dot.monitor-selected {
+  transform: scale(1.35);
+  box-shadow: 0 0 16px 3px var(--dot-glow, rgba(245, 158, 11, 0.6)), 0 0 30px 8px var(--dot-glow, rgba(245, 158, 11, 0.6));
+}
+.telemetry-dot.monitor-selected::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dot-color, #F59E0B);
+  opacity: 0.85;
 }
 
 /* ============ SPECTRAL CONFIRMATION OVERLAY (rings + badges) ============ */
@@ -1781,10 +1927,9 @@ label {
   font-size: 9px; color: #CBD5E1; letter-spacing: 0.4px; white-space: nowrap;
 }
 .legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
-.swatch-monitor { width: 10px; height: 10px; border-radius: 50%; background: #F59E0B;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.8); }
+.swatch-monitor { width: 10px; height: 10px; border-radius: 50%; background: #E2E8F0;
+  border: 1.5px solid #64748B; }
 .swatch-boundary { background: #E879F9; height: 3px; border-radius: 2px; box-shadow: 0 0 6px rgba(232, 121, 249, 0.7); }
-.swatch-veg { border: 2px dashed #38BDF8; border-radius: 3px; background: rgba(56, 189, 248, 0.15); }
 .swatch-flooded { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
 .swatch-operational { background: #22C55E; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 .swatch-anomaly { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }

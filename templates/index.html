@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912t">
+    <link rel="stylesheet" href="/static/style.css?v=20260912u">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -24,7 +24,7 @@
                     <span>LIVE SCADA FEED</span>
                 </div>
                 <div class="utc-clock" id="system-time">--:--:-- UTC</div>
-                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912T</span></div>
+                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912U</span></div>
             </div>
         </header>
 
@@ -220,7 +220,6 @@
                             <div class="map-legend-title">MAP LEGEND</div>
                             <div class="map-legend-item"><span class="legend-swatch swatch-monitor"></span>Monitoring points</div>
                             <div class="map-legend-item"><span class="legend-swatch swatch-boundary"></span>Mine boundary</div>
-                            <div class="map-legend-item"><span class="legend-swatch swatch-veg"></span>Vegetation / spectral analysis area</div>
                             <div class="map-legend-item"><span class="legend-swatch swatch-flooded"></span>Flooded zone</div>
                             <div class="map-legend-item"><span class="legend-swatch swatch-operational"></span>Operational zone</div>
                             <div class="map-legend-item"><span class="legend-swatch swatch-anomaly"></span>Anomaly / risk zone</div>
@@ -322,18 +321,35 @@
                         <!-- Populated dynamically via JS -->
                     </div>
 
-                    <!-- MANDATED SPECTRAL COMPLIANCE STRIP (AOI-LEVEL RESULT) -->
-                    <div class="spec-compliance-card">
-                        <div class="spec-match-title" id="spectral-title">97.84% PYROLUSITE SPECTRAL SIMILARITY · AOI-LEVEL SCREENING</div>
-                        <div class="spec-scope-note" id="spec-scope-note">AOI-level prototype result over the 76.409-ha Bharveli–Awalajhari boundary — <strong>not a per-zone score</strong>. Per-zone similarity appears after screening an individual zone.</div>
-<div class="spec-meta-tags" id="spectral-tags">
-                            <span class="spec-tag">Sentinel-2C L2A</span>
-                            <span class="spec-tag">USGS Pyrolusite Reference</span>
-                            <span class="spec-tag">Prototype threshold — requires field/lab validation</span>
+                    <!-- DYNAMIC ZONE SPECTRAL CARD (updates with the selected zone) -->
+                    <div class="spec-compliance-card spectral-card" id="spectral-card">
+                        <div class="spectral-empty" id="spectral-empty">
+                            <div class="spectral-empty-title">SELECT A ZONE</div>
+                            <div class="spectral-empty-sub">Click a monitoring point on the map to view its spectral screening.</div>
                         </div>
-                        <!-- Mini Spectral Canvas -->
-                        <div class="spec-chart-container">
-                            <canvas id="spectralCanvas" width="700" height="70"></canvas>
+                        <div class="spectral-filled" id="spectral-filled" hidden>
+                            <div class="spectral-head">
+                                <div class="spectral-head-score">
+                                    <span class="spectral-pct" id="spectral-pct">--</span><span class="spectral-pct-unit">%</span>
+                                </div>
+                                <div class="spectral-head-copy">
+                                    <div class="spectral-title" id="spectral-title">PYROLUSITE SPECTRAL SIMILARITY</div>
+                                    <div class="spectral-zone" id="spectral-zone">--</div>
+                                    <div class="spectral-tier" id="spectral-tier">--</div>
+                                </div>
+                            </div>
+                            <div class="spectral-tags" id="spectral-tags"></div>
+                            <div class="spectral-desc" id="spectral-desc">--</div>
+                            <div class="spectral-chart">
+                                <div class="spectral-chart-title">SPECTRAL SIGNATURE COMPARISON</div>
+                                <svg id="spectral-svg" class="spectral-svg" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Spectral signature comparison between the selected zone and the Pyrolusite reference"></svg>
+                                <div class="spectral-chart-legend">
+                                    <span class="chart-legend-item"><i class="legend-line-line zone"></i>Selected zone spectrum</span>
+                                    <span class="chart-legend-item"><i class="legend-line-line ref"></i>Pyrolusite reference</span>
+                                </div>
+                            </div>
+                            <div class="spectral-provenance" id="spectral-provenance">--</div>
+                            <div class="spectral-footnote">SYNTHETIC DEMO DATA — prototype spectral screening signal. Verify with field sampling before decisions.</div>
                         </div>
                     </div>
                 </section>
@@ -411,7 +427,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/static/script.js?v=20260912t"></script>
+    <script src="/static/script.js?v=20260912u"></script>
 <script src="/static/weather.js"></script>
 </body>
 </html>

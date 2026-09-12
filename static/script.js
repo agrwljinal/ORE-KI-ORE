@@ -97,6 +97,8 @@ let revealStopToken = 0;
 // Latest loaded zones + marker registry for focusing/highlighting.
 let zonesCache = [];
 let zoneMarkers = {};
+let telemetryMarkers = {};   // zone_id -> { dot, el } (monitoring-point markers)
+let selectedZoneId = null;   // the currently selected zone (dot highlight + spectral card)
 
 // Synthetic surface renderer state.
 let surfaceMode = "raw";   // "raw" | "filtered"
@@ -108,8 +110,16 @@ let activeZoneId = null;   // the actual zone_id captured at pin-click time
 let surfaceScanning = false; // live NDVI sweep in progress (toggles locked)
 
 // Pyrolusite reference vector (matches modules.spectral.PYROLUSITE_REFERENCE).
-// Only used for visual comparison in the fingerprint bars.
+// Only used for visual comparison in the fingerprint bars + signature chart.
 const PYROLUSITE_REF = { B04: 0.05571, B08: 0.05838, B11: 0.09301, B12: 0.08208 };
+
+// Sentinel-2 band order + central wavelengths (modules.spectral.SENTINEL_WAVELENGTHS_UM).
+const SENTINEL_BANDS = [
+  { id: "B04", label: "B04 RED",  nm: "665 nm" },
+  { id: "B08", label: "B08 NIR",  nm: "842 nm" },
+  { id: "B11", label: "B11 SWIR-1", nm: "1610 nm" },
+  { id: "B12", label: "B12 SWIR-2", nm: "2190 nm" },
+];
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, s = "") => (n === null || n === undefined) ? "--" : `${n}${s}`;
@@ -365,16 +375,31 @@ async function loadZones(demo = false) {
   setWorkflowStep(1);
 }
 
-// Cinematic focus: smooth zoom into the zone and highlight its marker.
-function focusZone(z) {
-  try { map.flyTo([z.latitude, z.longitude], 18, { duration: 1.6 }); } catch (e) {}
+// Highlight the selected zone across every surface: map orbs, monitoring
+// dots and the pit-grid cards. Kept in one place so card/dot/orb clicks all
+// stay in sync (single selection state = selectedZoneId).
+function applySelectedHighlights() {
   Object.entries(zoneMarkers).forEach(([id, m]) => {
-    const core = m.orb.getElement() && m.orb.getElement().querySelector(".zone-orb");
+    const core = m.orb.getElement && m.orb.getElement().querySelector(".zone-orb");
     if (core) {
-      core.classList.toggle("zone-selected", id === z.zone_id);
-      core.classList.toggle("zone-dimmable", id !== z.zone_id);
+      core.classList.toggle("zone-selected", id === selectedZoneId);
+      core.classList.toggle("zone-dimmable", id !== selectedZoneId);
     }
   });
+  Object.entries(telemetryMarkers).forEach(([id, tm]) => {
+    const dot = tm.el && tm.el.querySelector(".telemetry-dot");
+    if (dot) dot.classList.toggle("monitor-selected", id === selectedZoneId);
+  });
+  document.querySelectorAll("#pit-telemetry-grid .pit-box").forEach((box) => {
+    box.classList.toggle("pit-selected", box.dataset.zoneId === selectedZoneId);
+  });
+}
+
+// Cinematic focus: smooth zoom into the zone and highlight its marker.
+function focusZone(z) {
+  selectedZoneId = z.zone_id || null;
+  try { map.flyTo([z.latitude, z.longitude], 18, { duration: 1.6 }); } catch (e) {}
+  applySelectedHighlights();
   setWorkflowStep(1);
 }
 
@@ -385,6 +410,9 @@ function onZoneSelect(z) {
   const btn = $("btn-surface-filter");
   if (btn) btn.dataset.zoneId = activeZoneId || "";
   focusZone(z);
+  // Synchronous spectral card + graph update for the exact selected zone
+  // (single source = the canonical zones cache, no extra fetch).
+  renderSpectralCard(z);
   if (expandMapOpen) {
     // Expanded map: a small floating card near the zone instead of the full
     // panel, so the expanded map stays usable.
@@ -880,10 +908,11 @@ async function runScreeningReveal() {
 }
 
 function addEnergyHalo(z) {
-  // Halo colour = spectral confirmation tier (HIGH/LIKELY/WEAK/MISMATCH/NO DATA),
-  // so the screening layer never collides with the status-coloured orbs below.
-  const tier = confirmationTier(z.spectral_similarity);
-  const st = { color: tier.color, glow: tier.color };
+  // Halo colour mirrors the zone dot's STATUS colour (FLOODED red,
+  // OPERATIONAL green, ANOMALY amber), so every halo matches its pin. The
+  // label still carries the spectral tier + similarity %.
+  const stc = statusStyle(z);
+  const st = { color: stc.color, glow: stc.glow };
   const sim = z.spectral_similarity;
   const withheld = sim === null || sim === undefined;
   const radius = 48 + Math.round(((sim || 0) / 100) * 56); // 48..104 px
@@ -1553,77 +1582,164 @@ async function loadXai() {
   }
 }
 
-// ---------------- SPECTRAL ----------------
-function drawSpectralChart(data) {
-  const canvas = document.getElementById("spectralCanvas");
-  if (!canvas || !canvas.getContext) return;
-  const ctx = canvas.getContext("2d");
-  const wavelengths = data.wavelengths_um || {};
-  const live = data.live_reflectance || {};
-  const reference = data.reference_reflectance || {};
-  const keys = Object.keys(wavelengths).filter(
-    (k) => isFinite(Number(wavelengths[k])) && isFinite(Number(live[k])),
-  );
-  if (keys.length < 2) return;
+// ---------------- SPECTRAL ---------------
+// The dynamic spectral card always reflects the SELECTED zone (map dot, orb,
+// pit-grid card or expanded-map zone all funnel through onZoneSelect). With
+// no selection it shows an explicit "SELECT A ZONE" state.
 
-  const W = canvas.width;
-  const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
-  const xs = keys.map((k) => Number(wavelengths[k]));
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const allVals = keys
-    .flatMap((k) => [Number(live[k]), Number(reference[k])])
-    .filter(isFinite);
-  const minV = Math.min(...allVals, 0);
-  const maxV = Math.max(...allVals, 0.0001);
-
-  const px = (x) => ((x - minX) / (maxX - minX || 1)) * (W - 16) + 8;
-  const py = (v) => H - 10 - ((v - minV) / (maxV - minV || 1)) * (H - 18);
-
-  const drawLine = (series, color, width) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    keys.forEach((k, i) => {
-      const x = px(Number(wavelengths[k]));
-      const y = py(Number(series[k]));
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  };
-
-  drawLine(reference, "#94A3B8", 1.5);
-  drawLine(live, "#06B6D4", 2);
+function spectralZoneShortName(zone) {
+  const name = zone && zone.name ? String(zone.name) : "";
+  const m = name.match(/^Zone \w/i);
+  return (m && m[0]) || (zone && zone.zone_id) || "ZONE";
 }
 
-function renderSpectral(data) {
-  const sim = Number(data.similarity);
-  const title = document.getElementById("spectral-title");
-  if (title) {
-    title.textContent = `${isFinite(sim) ? (sim * 100).toFixed(2) : "--"}% ${(data.label || "SPECTRAL SIMILARITY").toUpperCase()} · AOI-LEVEL SCREENING`;
+function renderSpectralCard(zone) {
+  const empty = $("spectral-empty");
+  const filled = $("spectral-filled");
+  if (!zone) {
+    if (empty) empty.hidden = false;
+    if (filled) filled.hidden = true;
+    return;
   }
-  const tags = document.getElementById("spectral-tags");
+  if (empty) empty.hidden = true;
+  if (filled) filled.hidden = false;
+
+  const sim = zone.spectral_similarity;
+  const scored = sim !== null && sim !== undefined && isFinite(Number(sim));
+  const tier = confirmationTier(scored ? Number(sim) : null);
+  const bestName = zone.best_mineral_match
+    ? zone.best_mineral_match.charAt(0).toUpperCase() + zone.best_mineral_match.slice(1)
+    : "—";
+
+  if ($("spectral-pct")) $("spectral-pct").textContent = scored ? Number(sim).toFixed(2) : "N/A";
+  if ($("spectral-zone")) $("spectral-zone").textContent = `${zone.zone_id} · ${zone.name || "Zone"}`;
+  if ($("spectral-title")) {
+    $("spectral-title").textContent = scored ? "PYROLUSITE SPECTRAL SIMILARITY" : "ZONE SPECTRAL SCREENING";
+  }
+  const tierEl = $("spectral-tier");
+  if (tierEl) {
+    tierEl.textContent = scored ? `${tier.label} · BEST MATCH: ${bestName}` : `SCORE WITHHELD · BEST MATCH: ${bestName}`;
+    tierEl.style.color = scored ? tier.color : "#94A3B8";
+  }
+
+  // Metadata tags (all from the selected zone's canonical record).
+  const tags = $("spectral-tags");
   if (tags) {
     tags.innerHTML = "";
-    const scene = data.scene || {};
-    const parts = [];
-    if (scene.satellite_sensor) parts.push(scene.satellite_sensor);
-    if (scene.tile) parts.push(scene.tile);
-    if (scene.date) parts.push(scene.date);
-    if (scene.cloud_cover_pct != null) parts.push(`Cloud cover ${scene.cloud_cover_pct}%`);
-    if (data.spectral_potential) parts.push(`${data.spectral_potential} potential`);
-    if (data.interpretation) parts.push(data.interpretation);
-    parts.forEach((text) => {
-      const s = document.createElement("span");
-      s.className = "spec-tag";
-      s.textContent = text;
-      tags.appendChild(s);
-    });
+    const scene = zone.spectral_scene || {};
+    const meta = [];
+    if (scene.platform) meta.push(scene.platform);
+    if (scene.date) meta.push(scene.date);
+    if (scene.scene_id) meta.push(scene.scene_id);
+    if (scene.tile) meta.push(`tile ${scene.tile}`);
+    if (scene.cloud_cover_pct != null) meta.push(`cloud ${scene.cloud_cover_pct}%`);
+    const sceneTag = meta.join(" · ").trim();
+    if (sceneTag) tags.appendChild(specTag(sceneTag));
+    tags.appendChild(specTag(`Reference: Pyrolusite (USGS splib05a)`));
+    if (zone.reflectance_source_tag) tags.appendChild(specTag(zone.reflectance_source_tag));
   }
-  drawSpectralChart(data);
+
+  // Description — zone-specific and data-driven, never fabricated.
+  const desc = $("spectral-desc");
+  if (desc) {
+    if (scored) {
+      const bandList = SENTINEL_BANDS.map((b) => b.id).join("/");
+      desc.textContent =
+        `${zone.name} registers ${Number(sim).toFixed(2)}% spectral similarity to the Pyrolusite reference ` +
+        `across Sentinel-2 bands ${bandList} (normalized cosine similarity). ` +
+        `Combined with ${zone.spatial_score != null ? zone.spatial_score + "%" : "the"} spatial prospectivity rating, this zone evaluates as ${String(zone.priority || "no fused priority").toUpperCase()}.`;
+    } else {
+      const maskReason =
+        zone.vegetation_mask && zone.vegetation_mask.reason
+          ? String(zone.vegetation_mask.reason).trim()
+          : "insufficient exposed surface after vegetation masking";
+      desc.textContent =
+        `No zone-level spectral score is emitted for ${zone.name}: ${maskReason.replace(/\.+$/, "")}. ` +
+        `The Pyrolusite reference line is shown for comparison only — no spectrum is fabricated.`;
+    }
+  }
+
+  const prov = $("spectral-provenance");
+  if (prov) prov.textContent = provenanceChip(zone.data_provenance).text;
+
+  renderSignatureGraph(scored ? zone.zone_reflectance : null);
+}
+
+function specTag(text) {
+  const s = document.createElement("span");
+  s.className = "spec-tag";
+  s.textContent = text;
+  return s;
+}
+
+// SPECTRAL SIGNATURE COMPARISON: selected zone spectrum vs Pyrolusite
+// reference across Sentinel-2 bands, with a wavelength (X) and normalized
+// reflectance (Y) axis. Drawn as SVG using existing band data only.
+function renderSignatureGraph(zoneReflectance) {
+  const svg = $("spectral-svg");
+  if (!svg) return;
+  const W = 600, H = 220;
+  const padL = 46, padR = 14, padT = 18, padB = 38;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const n = SENTINEL_BANDS.length;
+
+  const hasZone = !!zoneReflectance &&
+    SENTINEL_BANDS.every((b) => isFinite(Number(zoneReflectance[b.id])));
+  const zoneVals = hasZone ? SENTINEL_BANDS.map((b) => Number(zoneReflectance[b.id])) : null;
+  const refVals = SENTINEL_BANDS.map((b) => Number(PYROLUSITE_REF[b.id]));
+  const maxVal = Math.max(...refVals, ...(zoneVals || [])) * 1.08;
+  const x = (i) => padL + (i / (n - 1)) * iw;
+  const y = (v) => padT + ih - (Math.max(0, v) / maxVal) * ih;
+
+  let out = "";
+
+  // Y gridlines + tick labels (normalized reflectance 0..1).
+  for (let k = 0; k <= 4; k++) {
+    const frac = k / 4;
+    const gy = padT + ih - frac * ih;
+    out += `<line x1="${padL}" y1="${gy}" x2="${padL + iw}" y2="${gy}" stroke="#1E293B" stroke-width="1" stroke-dasharray="${k === 0 ? "0" : "3 5"}"/>`;
+    out += `<text x="${padL - 7}" y="${gy + 3.5}" fill="#64748B" font-size="9.5" text-anchor="end">${String(frac)}</text>`;
+  }
+
+  // X axis: band labels + central wavelengths.
+  out += `<line x1="${padL}" y1="${padT + ih}" x2="${padL + iw}" y2="${padT + ih}" stroke="#334155" stroke-width="1"/>`;
+  SENTINEL_BANDS.forEach((b, i) => {
+    const bx = x(i);
+    out += `<text x="${bx}" y="${padT + ih + 16}" fill="#CBD5E1" font-size="10" font-weight="700" text-anchor="middle">${b.label}</text>`;
+    out += `<text x="${bx}" y="${padT + ih + 30}" fill="#64748B" font-size="8.5" text-anchor="middle">λ ${b.nm}</text>`;
+  });
+
+  // Axes captions.
+  out += `<text x="${padL + iw / 2}" y="${H - 2}" fill="#64748B" font-size="8.5" text-anchor="middle">SENTINEL-2 BAND / WAVELENGTH</text>`;
+  out += `<text x="12" y="${padT + ih / 2}" fill="#64748B" font-size="8.5" text-anchor="middle" transform="rotate(-90 12 ${padT + ih / 2})">NORMALIZED REFLECTANCE</text>`;
+
+  const polyline = (vals, color, width, dash) => {
+    const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    out += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${width}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
+    vals.forEach((v, i) => {
+      out += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.2" fill="#0B1322" stroke="${color}" stroke-width="1.8"/>`;
+    });
+  };
+
+  const refColor = "#A78BFA";
+  const zoneColor = "#22D3EE";
+
+  if (hasZone && zoneVals) {
+    polyline(refVals, refColor, 1.6, "5 4");
+    polyline(zoneVals, zoneColor, 2.4, null);
+    // Normalized values beside each marker (y-axis is normalized reflectance).
+    zoneVals.forEach((v, i) => {
+      out += `<text x="${x(i)}" y="${y(v) - 8}" fill="${zoneColor}" font-size="8.5" font-weight="700" text-anchor="middle">${(v / maxVal).toFixed(2)}</text>`;
+    });
+    refVals.forEach((v, i) => {
+      out += `<text x="${x(i)}" y="${y(v) + 15}" fill="${refColor}" font-size="8" text-anchor="middle">${(v / maxVal).toFixed(2)}</text>`;
+    });
+  } else {
+    polyline(refVals, refColor, 1.6, "5 4");
+    out += `<text x="${padL + iw / 2}" y="${padT + ih / 2}" fill="#94A3B8" font-size="11" font-weight="700" text-anchor="middle">ZONE SPECTRUM WITHHELD — NO FABRICATED LINE</text>`;
+  }
+
+  svg.innerHTML = out;
 }
 
 // ---------------- PIT GRID ----------------
@@ -1714,6 +1830,17 @@ function renderPitGrid(pockets) {
 
     const box = document.createElement("div");
     box.className = "pit-box";
+    box.dataset.zoneId = p.id || "";
+    box.setAttribute("role", "button");
+    box.tabIndex = 0;
+    box.setAttribute("aria-label", `Select ${p.name || p.id || "zone"}`);
+    box.addEventListener("click", () => {
+      const z = (zonesCache || []).find((zz) => zz.zone_id === p.id);
+      if (z) onZoneSelect(z);
+    });
+    box.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); box.click(); }
+    });
 
     const name = document.createElement("div");
     name.className = "pit-name";
@@ -1745,6 +1872,7 @@ function renderPitGrid(pockets) {
 
     grid.appendChild(box);
   });
+  applySelectedHighlights();
 }
 
 function metaRow(text) {
@@ -1919,14 +2047,27 @@ async function loadTelemetry() {
 
     if (map && layers.telemetry) {
       layers.telemetry.clearLayers();
+      telemetryMarkers = {};
       (data.ore_pockets || []).forEach((p, i) => {
+        // Monitoring points are status-coloured clean glowing dots that match
+        // the zone orbs underneath (one colour story on the whole map).
+        const st = (function () {
+          try { return statusStyle({ status: p.status }); } catch (e) { return { color: "#F59E0B", glow: "rgba(245,158,11,0.6)" }; }
+        })();
         const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
         const icon = L.divIcon({
           className: "telemetry-marker",
-          html: `<div class="telemetry-dot">●</div>`,
-          iconSize: [22, 22],
+          html: `<div class="telemetry-dot" style="--dot-color:${st.color};--dot-glow:${st.glow}"></div>`,
+          iconSize: [18, 18],
         });
-        L.marker([p.lat, p.lon], { icon, riseOnHover: true })
+        const dot = L.marker([p.lat, p.lon], { icon, riseOnHover: true });
+        dot.on("add", () => {
+          const el = dot.getElement();
+          if (!el) return;
+          el.dataset.zoneId = p.id || "";
+          telemetryMarkers[p.id] = { dot, el };
+        });
+        dot
           .bindTooltip(monitorTooltipHtml(i, p, zone), {
             direction: "top",
             offset: [0, -10],
@@ -1943,17 +2084,10 @@ async function loadTelemetry() {
           })
           .addTo(layers.telemetry);
       });
+      applySelectedHighlights();
     }
   } catch (_) {
     renderPitGrid([]);
-  }
-}
-
-async function loadSpectral() {
-  try {
-    renderSpectral(await apiFetch("/api/spectral"));
-  } catch (_) {
-    drawSpectralChart({});
   }
 }
 
@@ -2031,7 +2165,8 @@ function bindControls() {
 // ---------------- INIT ----------------
 async function init() {
   updateControlBadges(getControls());
-  await Promise.allSettled([loadTelemetry(), loadSpectral()]);
+  renderSpectralCard(null);
+  await loadTelemetry();
   await Promise.allSettled([loadAOI(), loadZones(true)]);
   await refreshAll();
 }
