@@ -147,10 +147,16 @@ CANDIDATE_ZONES = [
         "operational_status": "Flooded",
         "water_depth_m": 4.2,
         "pumps_active": 0,
-        # Highest spectral similarity - visually CONFIRMED (pulsing green ring)
+        # Low pyrolusite spectral similarity. The exposed surface in this
+        # flooded zone is a weathered/barren low-ore ground whose spectral
+        # shape sits far from the pyrolusite reference -> MISMATCH tier, so
+        # red status + low prospectivity + low similarity all agree.
         "linked_geology_record_id": "GEO-000015",
         # SYNTHETIC_DEMO chip config for the vegetation-masking demo mode.
-        "demo_chip": {"size": 20, "seed": 1101, "vegetation_fraction": 0.08, "water_fraction": 0.06},
+        "demo_chip": {
+            "size": 20, "seed": 1101, "vegetation_fraction": 0.08, "water_fraction": 0.06,
+            "exposed_reflectance": {"B04": 0.80, "B08": 0.72, "B11": 0.04, "B12": 0.03},
+        },
     },
     {
         "zone_id": "ZONE_B",

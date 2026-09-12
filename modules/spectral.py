@@ -842,7 +842,11 @@ def simulate_zone_chip(zone_config: Optional[Mapping[str, Any]] = None) -> Dict[
     * exposed      (remainder): dry ore/rock surface anchored on the zone's
       synthetic base reflectance with B08 kept close to B04 so NDVI stays in
       the usable exposed window - these pixels survive the mask and feed the
-      spectral mean.
+      spectral mean. A ``demo_chip`` may optionally override the exposed
+      surface base reflectance via ``exposed_reflectance`` (e.g. a
+      weathered/barren surface whose spectral shape sits far from the
+      pyrolusite reference); B08 is still derived from B04 so the pixels
+      remain inside the exposed NDVI window.
 
     Returns a fully-labelled payload: ``{"dataset", "provenance", "seed",
     "chip_size", "total_pixels", "vegetation_fraction", "water_fraction",
@@ -887,12 +891,13 @@ def simulate_zone_chip(zone_config: Optional[Mapping[str, Any]] = None) -> Dict[
             bands["B12"].append(round(rng.uniform(*_WATER_PIXEL_RANGES["B12"]), 6))
         else:
             classes.append("exposed")
-            b4 = base["B04"] * rng.uniform(0.92, 1.08)
+            exposed_base = cfg.get("exposed_reflectance") or {}
+            b4 = float(exposed_base.get("B04", base["B04"])) * rng.uniform(0.92, 1.08)
             b8 = b4 * rng.uniform(0.98, 1.20)  # keeps exposed-surface NDVI in the usable window
             bands["B04"].append(round(b4, 6))
             bands["B08"].append(round(b8, 6))
-            bands["B11"].append(round(base["B11"] * rng.uniform(0.92, 1.08), 6))
-            bands["B12"].append(round(base["B12"] * rng.uniform(0.92, 1.08), 6))
+            bands["B11"].append(round(float(exposed_base.get("B11", base["B11"])) * rng.uniform(0.92, 1.08), 6))
+            bands["B12"].append(round(float(exposed_base.get("B12", base["B12"])) * rng.uniform(0.92, 1.08), 6))
 
     # Per-pixel NDVI recomputed from the generated grid exactly as the mask
     # will do. Drives the client-side NDVI heatmap behind the scan sweep.
