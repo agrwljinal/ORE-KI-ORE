@@ -1706,14 +1706,16 @@ label {
   box-shadow:
     0 0 12px 2px var(--zone-glow),
     0 0 26px 6px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.55);
-  background: radial-gradient(circle at 36% 32%, rgba(255, 255, 255, 0.95) 0%, var(--zone-color) 38%, rgba(0, 0, 0, 0.0) 100%);
-  opacity: 0.92;
+    inset 0 0 8px 2px rgba(255, 255, 255, 0.45);
+  background: radial-gradient(circle at 36% 32%, rgba(255, 255, 255, 0.85) 0%, var(--zone-color) 30%, var(--zone-color) 58%, rgba(0, 0, 0, 0) 100%);
+  opacity: 0.95;
   animation: zone-orb-pulse 2.6s ease-in-out infinite;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition: opacity 0.3s ease;
   cursor: pointer;
 }
-.zone-orb:hover { transform: scale(1.18); }
+/* Hover never changes the pin's colour, size or glow: the suitability colour
+   is identical at rest and on hover. Only the pointer cursor (above) and the
+   read-only tooltip signal that the pin is interactive. */
 .zone-orb.zone-selected {
   transform: scale(1.3);
   opacity: 1;
@@ -1741,9 +1743,9 @@ label {
   100% { transform: scale(1.6);  opacity: 0;   }
 }
 
-/* Dim other zones when one is selected. */
+/* Dim other zones when one is selected. Dimming stays constant even on hover
+   so no hover state ever re-colours or re-emphasises a pin. */
 .zone-orb.zone-dimmable { opacity: 0.45; }
-.zone-orb.zone-dimmable:hover { opacity: 0.9; }
 
 /* --- Energy halos (spectral screening reveal) --- */
 .energy-halo {
