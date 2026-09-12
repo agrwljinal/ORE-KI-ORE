@@ -27,7 +27,6 @@ except ImportError:
 
 try:
     from modules.prediction import (
-        predict_weekly_tonnage,
         predict_shortfall_with_model,
         derive_banner_state,
     )
@@ -230,7 +229,9 @@ except ImportError:
 SYSTEM_STATE = {
     "plan_executed": False,
     "rainfall_mm": 88.5,
-    "mtbf_hrs": 26.0,
+    "soil_moisture_pct": 38.0,
+    "equipment_downtime_hours": 6.0,
+    "blast_delay_minutes": 45.0,
     "labor_drop_pct": 18.0,
     "target_tonnage": C.BASE_WEEKLY_TARGET_TONS,
     "ore_grade": "STD",
@@ -271,6 +272,9 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
         "shortfall_tonnage": round(shortfall, 2),
         "predicted_output": round(predicted, 2),
         "shortfall_tons": round(shortfall, 2),
+        "ml_predicted_output": raw_pred.get("ml_predicted_output"),
+        "ml_features": raw_pred.get("ml_features") or {},
+        "model_metrics": raw_pred.get("metrics") or {},
         "penalties": raw_pred.get("penalties") or {},
         "factors": raw_pred.get("factors") or {},
         "model_used": raw_pred.get("model_used"),
@@ -294,32 +298,29 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
 def _current_params():
     return {
         "rainfall_mm": SYSTEM_STATE["rainfall_mm"],
-        "mtbf_hrs": SYSTEM_STATE["mtbf_hrs"],
+        "soil_moisture_pct": SYSTEM_STATE["soil_moisture_pct"],
+        "equipment_downtime_hours": SYSTEM_STATE["equipment_downtime_hours"],
+        "blast_delay_minutes": SYSTEM_STATE["blast_delay_minutes"],
         "labor_drop_pct": SYSTEM_STATE["labor_drop_pct"],
         "target_tonnage": SYSTEM_STATE["target_tonnage"],
         "ore_grade": SYSTEM_STATE.get("ore_grade", "STD"),
-        "fleet_capacity_baseline": float(getattr(C, "FLEET_CAPACITY_BASELINE_TONS", 14500.0)),
+        "mine_name": SYSTEM_STATE.get("mine_name"),
     }
 
 
 def _make_prediction():
-    """Predict shortfall using the multiplicative factor model (trained-model
-    weights when available; deterministic constants otherwise)."""
-    if predict_shortfall_with_model is not None:
-        return predict_shortfall_with_model(
-            base_target=SYSTEM_STATE["target_tonnage"],
-            rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-            mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-            labor_drop_pct=SYSTEM_STATE["labor_drop_pct"],
-            mine_name=SYSTEM_STATE.get("mine_name") or None,
-            ore_grade=SYSTEM_STATE.get("ore_grade", "STD"),
-            fleet_capacity_baseline=float(getattr(C, "FLEET_CAPACITY_BASELINE_TONS", 14500.0)),
-        )
-    return predict_weekly_tonnage(
+    """ML direct output, then manual labor/grade factors, then shortfall."""
+    if predict_shortfall_with_model is None:
+        raise RuntimeError("Direct actual-ROM model is unavailable")
+    return predict_shortfall_with_model(
         base_target=SYSTEM_STATE["target_tonnage"],
         rainfall_mm=SYSTEM_STATE["rainfall_mm"],
-        mtbf_hrs=SYSTEM_STATE["mtbf_hrs"],
-        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"]
+        soil_moisture_pct=SYSTEM_STATE["soil_moisture_pct"],
+        equipment_downtime_hours=SYSTEM_STATE["equipment_downtime_hours"],
+        blast_delay_minutes=SYSTEM_STATE["blast_delay_minutes"],
+        labor_drop_pct=SYSTEM_STATE["labor_drop_pct"],
+        mine_name=SYSTEM_STATE.get("mine_name") or None,
+        ore_grade=SYSTEM_STATE.get("ore_grade", "STD"),
     )
 
 
@@ -579,15 +580,15 @@ def handle_predictions():
             if not isinstance(payload, dict):
                 return jsonify({"status": "error", "message": "Invalid JSON body: an object is required."}), 400
             rainfall = float(payload.get("rainfall_mm", SYSTEM_STATE["rainfall_mm"]))
-            mtbf = float(payload.get("mtbf_hrs", SYSTEM_STATE["mtbf_hrs"]))
+            soil_moisture = float(payload.get("soil_moisture_pct", SYSTEM_STATE["soil_moisture_pct"]))
+            downtime = float(payload.get("equipment_downtime_hours", SYSTEM_STATE["equipment_downtime_hours"]))
+            blast_delay = float(payload.get("blast_delay_minutes", SYSTEM_STATE["blast_delay_minutes"]))
             labor = float(payload.get("labor_drop_pct", SYSTEM_STATE["labor_drop_pct"]))
             target = float(payload.get("target_tonnage", SYSTEM_STATE["target_tonnage"]))
-            if not all(math.isfinite(value) for value in (rainfall, mtbf, labor, target)):
+            if not all(math.isfinite(value) for value in (rainfall, soil_moisture, downtime, blast_delay, labor, target)):
                 raise ValueError("non-finite values are not allowed")
-            if rainfall < 0:
-                raise ValueError("rainfall must be non-negative")
-            if mtbf < 5:
-                mtbf = 5.0  # item 7: MTBF floored at 5 hrs
+            if rainfall < 0 or soil_moisture < 0 or downtime < 0 or blast_delay < 0:
+                raise ValueError("ML input values must be non-negative")
             if labor < 0 or labor > 50:
                 labor = max(0.0, min(50.0, labor))  # item 7: labor deficit capped at 50%
             if target <= 0:
@@ -596,7 +597,9 @@ def handle_predictions():
             if ore_grade not in getattr(C, "ORE_GRADE_FACTORS", {"STD": 1.0}):
                 raise ValueError(f"unknown ore grade '{ore_grade}'")
             SYSTEM_STATE["rainfall_mm"] = rainfall
-            SYSTEM_STATE["mtbf_hrs"] = mtbf
+            SYSTEM_STATE["soil_moisture_pct"] = soil_moisture
+            SYSTEM_STATE["equipment_downtime_hours"] = downtime
+            SYSTEM_STATE["blast_delay_minutes"] = blast_delay
             SYSTEM_STATE["labor_drop_pct"] = labor
             SYSTEM_STATE["target_tonnage"] = target
             SYSTEM_STATE["ore_grade"] = ore_grade
@@ -604,7 +607,7 @@ def handle_predictions():
         except (TypeError, ValueError):
             return jsonify({
                 "status": "error",
-                "message": "Invalid parameter value. Rainfall, MTBF (hrs), labor (%) and target must be numeric.",
+                "message": "Invalid parameter value. Rainfall, soil moisture, downtime, blast delay, labor and target must be numeric.",
             }), 400
 
     raw_pred = _make_prediction()

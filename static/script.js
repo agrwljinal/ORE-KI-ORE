@@ -1057,7 +1057,9 @@ function renderFingerprint(zoneReflectance) {
 function getControls() {
   return {
     rainfall_mm: parseFloat(document.getElementById("slider-rainfall").value),
-    mtbf_hrs: parseFloat(document.getElementById("slider-mtbf").value),
+    soil_moisture_pct: parseFloat(document.getElementById("slider-soil-moisture").value),
+    equipment_downtime_hours: parseFloat(document.getElementById("slider-downtime").value),
+    blast_delay_minutes: parseFloat(document.getElementById("slider-blast-delay").value),
     labor_drop_pct: parseFloat(document.getElementById("slider-labor").value),
     target_tonnage: parseInt(document.getElementById("input-target").value, 10),
     ore_grade: document.getElementById("ore-grade-mix").value || "STD",
@@ -1070,7 +1072,9 @@ function updateControlBadges(controls) {
     if (el) el.textContent = text;
   };
   set("val-rainfall", `${controls.rainfall_mm.toFixed(1)} mm`);
-  set("val-mtbf", `${controls.mtbf_hrs.toFixed(1)} hrs`);
+  set("val-soil-moisture", `${controls.soil_moisture_pct.toFixed(1)} %`);
+  set("val-downtime", `${controls.equipment_downtime_hours.toFixed(1)} hrs`);
+  set("val-blast-delay", `${Math.round(controls.blast_delay_minutes)} min`);
   set("val-labor", `${Math.round(controls.labor_drop_pct)} %`);
   set("val-target-label", `${fmtNum(controls.target_tonnage)} MT`);
 }
@@ -1685,7 +1689,7 @@ async function onReset() {
 }
 
 function bindControls() {
-  const ids = ["slider-rainfall", "slider-mtbf", "slider-labor", "input-target"];
+  const ids = ["slider-rainfall", "slider-soil-moisture", "slider-downtime", "slider-blast-delay", "slider-labor", "input-target"];
   ids.forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
