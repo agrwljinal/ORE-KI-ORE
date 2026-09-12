@@ -54,13 +54,19 @@ class VegDemoModeRouteTests(unittest.TestCase):
             else:
                 self.assertIsNone(zone["spectral_similarity"])  # no misleading score
 
-    def test_zone_c_heavily_vegetated_is_suppressed(self):
+    def test_zone_c_demo_is_scorable_like_every_other_zone(self):
         body = self.client.get("/api/zones?veg_demo=1").get_json()
         zone = next(z for z in body["zones"] if z["zone_id"] == "ZONE_C")
 
-        self.assertFalse(zone["vegetation_mask"]["scorable"])
-        self.assertIsNone(zone["spectral_similarity"])
-        self.assertEqual(zone["final_exploration_score"], zone["spatial_score"])
+        # ZONE_C behaves exactly like the other zones: its heavily-vegetated
+        # chip still leaves enough exposed surface to produce a real score.
+        self.assertTrue(zone["vegetation_mask"]["scorable"])
+        self.assertIsNotNone(zone["spectral_similarity"])
+        self.assertIsNotNone(zone["best_mineral_match"])
+        self.assertIsNotNone(zone["zone_reflectance"])
+        self.assertTrue(zone["spectral_scene"])
+        # Fused priority is a genuine fusion, not a spatial-only fallback.
+        self.assertNotEqual(zone["final_exploration_score"], zone["spatial_score"])
 
     def test_demo_mode_never_pretends_to_be_real_satellite(self):
         body = self.client.get("/api/zones?veg_demo=1").get_json()

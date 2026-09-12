@@ -183,9 +183,10 @@ CANDIDATE_ZONES = [
         "pumps_active": 1,
         # Mid spectral - WEAK match (amber dashed ring)
         "linked_geology_record_id": "GEO-000055",
-        # Heavily vegetated: demo shows the NDVI guard suppressing a misleading
-        # spectral score (too few usable surface pixels remain).
-        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.90, "water_fraction": 0.02},
+        # Mid spectral - WEAK match (amber dashed ring). Still heavily
+        # vegetated, but the demo chip keeps enough exposed surface to yield a
+        # real, zone-specific spectral score just like every other zone.
+        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.70, "water_fraction": 0.02},
     },
     {
         "zone_id": "ZONE_D",

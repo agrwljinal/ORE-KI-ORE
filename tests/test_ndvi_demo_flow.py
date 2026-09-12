@@ -115,14 +115,16 @@ class NdviDemoFlowTests(unittest.TestCase):
                 + mask["valid_pixels_remaining"],
             )
 
-    def test_suppressed_zone_withholds_spectral_but_reports_honest_stats(self):
+    def test_zone_c_reports_scorable_chain_with_honest_stats(self):
         zone = self.client.get("/api/zones/ZONE_C?veg_demo=1").get_json()
         mask = zone["vegetation_mask"]
 
-        self.assertFalse(mask["scorable"])
-        self.assertIsNone(zone["spectral_similarity"])
-        self.assertLess(mask["surface_coverage_pct"], 15.0)  # below MIN_SURFACE_COVERAGE_PCT
-        self.assertIsNotNone(mask["ndvi_statistics"])         # stats still real
+        # ZONE_C is heavily vegetated but enough exposed surface survives the
+        # NDVI mask to produce a real, zone-specific spectral score.
+        self.assertTrue(mask["scorable"])
+        self.assertIsNotNone(zone["spectral_similarity"])
+        self.assertGreaterEqual(mask["surface_coverage_pct"], 15.0)  # at/above MIN_SURFACE_COVERAGE_PCT
+        self.assertIsNotNone(mask["ndvi_statistics"])                # stats still real
 
     # -- /api/ndvi/filter (the RUN NDVI SURFACE FILTER request) --------------
     def test_ndvi_filter_endpoint_generates_chip_and_mask(self):

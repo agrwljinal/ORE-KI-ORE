@@ -2384,11 +2384,11 @@ function renderSignatureGraph(zoneReflectance) {
   out += `<text x="${padL + iw / 2}" y="${H - 2}" fill="#64748B" font-size="8.5" text-anchor="middle">SENTINEL-2 BAND / WAVELENGTH</text>`;
   out += `<text x="12" y="${padT + ih / 2}" fill="#64748B" font-size="8.5" text-anchor="middle" transform="rotate(-90 12 ${padT + ih / 2})">NORMALIZED REFLECTANCE</text>`;
 
-  const polyline = (vals, color, width, dash) => {
+  const polyline = (vals, color, width, dash, series) => {
     const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
     out += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${width}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
     vals.forEach((v, i) => {
-      out += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.2" fill="#0B1322" stroke="${color}" stroke-width="1.8"/>`;
+      out += `<circle class="sig-pt ${series === "zone" ? "sig-pt-zone" : "sig-pt-ref"}" data-i="${i}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.6" fill="#0B1322" stroke="${color}" stroke-width="1.8"/>`;
     });
   };
 
@@ -2396,8 +2396,8 @@ function renderSignatureGraph(zoneReflectance) {
   const zoneColor = "#22D3EE";
 
   if (hasZone && zoneVals) {
-    polyline(refVals, refColor, 1.6, "5 4");
-    polyline(zoneVals, zoneColor, 2.4, null);
+    polyline(refVals, refColor, 1.6, "5 4", "ref");
+    polyline(zoneVals, zoneColor, 2.4, null, "zone");
     // Normalized values beside each marker (y-axis is normalized reflectance).
     zoneVals.forEach((v, i) => {
       out += `<text x="${x(i)}" y="${y(v) - 8}" fill="${zoneColor}" font-size="8.5" font-weight="700" text-anchor="middle">${(v / maxVal).toFixed(2)}</text>`;
@@ -2406,11 +2406,73 @@ function renderSignatureGraph(zoneReflectance) {
       out += `<text x="${x(i)}" y="${y(v) + 15}" fill="${refColor}" font-size="8" text-anchor="middle">${(v / maxVal).toFixed(2)}</text>`;
     });
   } else {
-    polyline(refVals, refColor, 1.6, "5 4");
+    polyline(refVals, refColor, 1.6, "5 4", "ref");
     out += `<text x="${padL + iw / 2}" y="${padT + ih / 2}" fill="#94A3B8" font-size="11" font-weight="700" text-anchor="middle">ZONE SPECTRUM WITHHELD — NO FABRICATED LINE</text>`;
   }
 
+  // Invisible per-band hover columns spanning the whole plot area, so
+  // hovering anywhere over a band shows the wavelength + reflectance values.
+  SENTINEL_BANDS.forEach((b, i) => {
+    out += `<rect class="sig-hit" data-i="${i}" x="${(x(i) - 16).toFixed(1)}" y="${padT}" width="32" height="${ih}"/>`;
+  });
+
   svg.innerHTML = out;
+  svg._sigData = {
+    zoneVals: hasZone ? zoneVals.map((v) => (v / maxVal).toFixed(3)) : null,
+    refVals: refVals.map((v) => (v / maxVal).toFixed(3)),
+  };
+  wireSignatureTooltip(svg);
+}
+
+// One dark, cursor-following tooltip for the signature graph. Hovering a band
+// (or either of its zone/reference points) shows the band name, wavelength and
+// both reflectance values - the two spectra stay colour-distinguishable.
+function wireSignatureTooltip(svg) {
+  if (!svg || svg._sigTooltipWired) return;
+  svg._sigTooltipWired = true;
+  const chart = svg.parentElement;
+  let tip = $("sig-tooltip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "sig-tooltip";
+    tip.className = "sig-tooltip";
+    tip.hidden = true;
+    chart.appendChild(tip);
+  }
+  const move = "mousemove",
+    leave = "mouseleave";
+  svg.addEventListener(move, (ev) => {
+    const data = svg._sigData;
+    if (!data) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 40) return;
+    const scaleX = rect.width / 600;
+    const scaleY = rect.height / 220;
+    const vx = (ev.clientX - rect.left) / scaleX;
+    const vy = (ev.clientY - rect.top) / scaleY;
+    const padL = 46, iw = 600 - padL - 14;
+    if (vx < padL || vx > padL + iw) { tip.hidden = true; return; }
+    const idx = Math.max(0, Math.min(SENTINEL_BANDS.length - 1,
+      Math.round(((vx - padL) / iw) * (SENTINEL_BANDS.length - 1))));
+    const b = SENTINEL_BANDS[idx];
+    const zoneVal = data.zoneVals ? data.zoneVals[idx] : null;
+    tip.innerHTML =
+      `<div class="sig-tip-head"><span class="sig-tip-band">${b.label}</span><span class="sig-tip-nm">λ ${b.nm}</span></div>` +
+      `<div class="sig-tip-row"><i class="sig-swatch" style="background:#22D3EE"></i><span>Selected zone</span><strong>${zoneVal != null ? zoneVal : "—"}</strong></div>` +
+      `<div class="sig-tip-row"><i class="sig-swatch" style="background:#A78BFA"></i><span>Pyrolusite ref</span><strong>${data.refVals[idx]}</strong></div>` +
+      `<div class="sig-tip-note">Normalized reflectance · hover another band</div>`;
+    tip.hidden = false;
+    const cr = chart.getBoundingClientRect();
+    const tw = tip.offsetWidth || 180;
+    const th = tip.offsetHeight || 74;
+    let left = (ev.clientX - cr.left) + 16;
+    if (left + tw > cr.width - 6) left = (ev.clientX - cr.left) - tw - 16;
+    let top = (ev.clientY - cr.top) + 14;
+    if (top + th > cr.height - 6) top = (ev.clientY - cr.top) - th - 14;
+    tip.style.left = Math.max(4, left) + "px";
+    tip.style.top = Math.max(4, top) + "px";
+  });
+  svg.addEventListener(leave, () => { if (tip) tip.hidden = true; });
 }
 
 // ---------------- PIT GRID ----------------

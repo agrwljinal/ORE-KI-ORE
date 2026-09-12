@@ -731,6 +731,7 @@ label {
 }
 
 .spectral-chart {
+    position: relative;
     background: #070B12;
     border: 1px solid #1E293B;
     border-radius: 5px;
@@ -748,6 +749,52 @@ label {
     width: 100%;
     height: auto;
     display: block;
+}
+.sig-hit { fill: transparent; }
+.sig-pt { cursor: pointer; }
+.sig-pt:hover { r: 5; stroke-width: 2.6; }
+
+/* Dark cursor-following tooltip for the interactive signature graph. */
+#sig-tooltip[hidden] { display: none; }
+#sig-tooltip {
+    position: absolute;
+    z-index: 60;
+    min-width: 190px;
+    max-width: 230px;
+    pointer-events: none;
+    background: rgba(4, 10, 21, 0.97);
+    border: 1px solid #26334F;
+    border-radius: 8px;
+    padding: 8px 10px;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+}
+.sig-tip-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+    padding-bottom: 4px;
+    border-bottom: 1px dashed #26334F;
+}
+.sig-tip-band { font-size: 11px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.4px; }
+.sig-tip-nm { font-size: 9.5px; font-weight: 700; color: #38BDF8; }
+.sig-tip-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    color: #CBD5E1;
+    padding: 2px 0;
+}
+.sig-tip-row strong { margin-left: auto; color: #F8FAFC; font-weight: 800; }
+.sig-tip-note { font-size: 8px; color: #64748B; font-style: italic; margin-top: 4px; }
+.sig-swatch {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 .spectral-chart-legend {
     display: flex;
