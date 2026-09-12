@@ -2814,16 +2814,21 @@ async function loadTelemetry() {
     if (clock && !isNaN(t.getTime())) clock.textContent = t.toISOString().substr(11, 8) + " UTC";
     initMap(data.center);
 
-    if (map && layers.telemetry) {
+    // Dots need their zone's prospectivity band to pick the right colour, so
+    // they are only painted once the zones cache is ready (init reloads
+    // telemetry immediately after loadZones). Before that we skip dots so the
+    // map never shows a mismatched or placeholder colour flash.
+    const zonesReady = (zonesCache || []).length > 0;
+    if (map && layers.telemetry && zonesReady) {
       layers.telemetry.clearLayers();
       telemetryMarkers = {};
       (data.ore_pockets || []).forEach((p, i) => {
-        // Monitoring points are status-coloured clean glowing dots that match
-        // the zone orbs underneath (one colour story on the whole map).
-        const st = (function () {
-          try { return statusStyle({ status: p.status }); } catch (e) { return { color: "#F59E0B", glow: "rgba(245,158,11,0.6)" }; }
-        })();
+        // Monitoring dots use the SAME prospectivity colour as the zone pin
+        // they sit on (green/amber/red), so every coloured dot on the map
+        // speaks one language and pins never appear to change colour during
+        // load. Operational status stays text-only in the tooltip.
         const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
+        const st = prospectivityStyle(zone);
         const icon = L.divIcon({
           className: "telemetry-marker",
           html: `<div class="telemetry-dot" style="--dot-color:${st.color};--dot-glow:${st.glow}"></div>`,
@@ -3014,6 +3019,9 @@ async function init() {
   renderSpectralCard(null);
   await loadTelemetry();
   await Promise.allSettled([loadAOI(), loadZones(true)]);
+  // Repaint monitoring dots now that zones are loaded so dots and pins share
+  // the same prospectivity colour the moment both appear on the map.
+  await loadTelemetry();
   await loadCustomers();
   await refreshAll();
 }
