@@ -544,7 +544,9 @@ def _telemetry_markers_from_zones():
         {
             "id": zone["zone_id"],
             "name": zone["name"],
-            "status": zone.get("operational_status", "Unknown"),
+            "status": zone.get("status", zone.get("operational_status", "Unknown")),
+            "production_impact": zone.get("production_impact", "LOW"),
+            "recommended_action": zone.get("recommended_action", "Review & investigate"),
             "lat": zone["latitude"],
             "lon": zone["longitude"],
             "water_depth_m": zone.get("water_depth_m", 0.0),
@@ -857,7 +859,12 @@ def _evaluate_zone(zone_config, use_demo_chip=False):
     payload.update({
         "name": zone_config["name"],
         "zone_type": zone_config.get("zone_type"),
+        "status": zone_config.get("status", zone_config.get("operational_status", "UNDER INVESTIGATION")),
+        "production_impact": zone_config.get("production_impact", "LOW"),
+        "recommended_action": zone_config.get("recommended_action", "Review & investigate"),
         "operational_status": zone_config.get("operational_status"),
+        "water_depth_m": zone_config.get("water_depth_m"),
+        "pumps_active": zone_config.get("pumps_active"),
         "zone_reflectance": reflectance,
         "zone_reflectance_provenance": spectral_provenance,
         "vegetation_mask": _zone_vegetation_mask_payload(mask_result),

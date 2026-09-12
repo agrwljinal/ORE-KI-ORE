@@ -111,7 +111,13 @@ FUSION_PROTOTYPE_LABEL = (
 #   spatial_score - 0-100 spatial prospectivity from the demo spatial model
 #   spatial_provenance - clearly labels the source
 #   zone_type     - descriptive
-#   operational_status - links to the legacy telemetry story
+#   status             - canonical machine status (FLOODED / OPERATIONAL /
+#                        SPECTRAL ANOMALY / UNDER INVESTIGATION). This is the
+#                        SINGLE source of truth: map orbs/halos, zone cards,
+#                        popups and the map legend all read this value.
+#   production_impact  - canonical operational impact (HIGH / MEDIUM / LOW / REVIEW)
+#   recommended_action - canonical operational action for this zone
+#   operational_status - legacy human label (kept for backward compatibility)
 #   linked_geology_record_id - which processed_geology.csv row supplies
 #                              the (synthetic) Sentinel-2 reflectance
 #
@@ -125,11 +131,16 @@ CANDIDATE_ZONES = [
     {
         "zone_id": "ZONE_A",
         "name": "Zone A (North Deep)",
-        "latitude": 21.8515,
-        "longitude": 80.2225,
+        "latitude": 21.8455,
+        "longitude": 80.2260,
         "spatial_score": 91.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
         "zone_type": "High-prospectivity candidate",
+        # Canonical machine status (single source of truth for map/cards/spatial
+        # legend colours). 'operational_status' stays as the legacy human label.
+        "status": "FLOODED",
+        "production_impact": "HIGH",
+        "recommended_action": "Activate dewatering",
         "operational_status": "Flooded",
         "water_depth_m": 4.2,
         "pumps_active": 0,
@@ -141,11 +152,14 @@ CANDIDATE_ZONES = [
     {
         "zone_id": "ZONE_B",
         "name": "Zone B (South Ridge)",
-        "latitude": 21.8385,
-        "longitude": 80.2320,
+        "latitude": 21.8300,
+        "longitude": 80.2280,
         "spatial_score": 68.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
         "zone_type": "Medium-prospectivity candidate",
+        "status": "OPERATIONAL",
+        "production_impact": "LOW",
+        "recommended_action": "Continue operations",
         "operational_status": "Dry",
         "water_depth_m": 0.0,
         "pumps_active": 2,
@@ -156,11 +170,14 @@ CANDIDATE_ZONES = [
     {
         "zone_id": "ZONE_C",
         "name": "Zone C (East Extension)",
-        "latitude": 21.8450,
-        "longitude": 80.2410,
+        "latitude": 21.8400,
+        "longitude": 80.2345,
         "spatial_score": 31.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
         "zone_type": "Low-prospectivity candidate",
+        "status": "SPECTRAL ANOMALY",
+        "production_impact": "REVIEW",
+        "recommended_action": "Inspect zone",
         "operational_status": "Anomaly",
         "water_depth_m": 0.8,
         "pumps_active": 1,
@@ -173,11 +190,14 @@ CANDIDATE_ZONES = [
     {
         "zone_id": "ZONE_D",
         "name": "Zone D (Western Bench)",
-        "latitude": 21.8460,
-        "longitude": 80.2200,
+        "latitude": 21.8435,
+        "longitude": 80.2205,
         "spatial_score": 74.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
         "zone_type": "Medium-prospectivity candidate",
+        "status": "OPERATIONAL",
+        "production_impact": "LOW",
+        "recommended_action": "Continue operations",
         "operational_status": "Active",
         "water_depth_m": 0.0,
         "pumps_active": 0,

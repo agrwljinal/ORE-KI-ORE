@@ -576,7 +576,7 @@ label {
 }
 .pit-telemetry-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     margin-bottom: 12px;
 }
@@ -745,12 +745,13 @@ label {
   transition: max-height 0.35s ease, opacity 0.25s ease, transform 0.35s ease, margin 0.35s ease, padding 0.35s ease;
 }
 .zone-inspector.is-open {
-  max-height: 900px;
+  max-height: min(900px, 80vh);
   padding-top: 14px;
   padding-bottom: 14px;
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
+  overflow-y: auto;
 }
 .zone-panel-close {
   width: 28px; height: 28px; border: 1px solid #334155; border-radius: 4px;
@@ -774,8 +775,8 @@ label {
 .zone-fingerprint .band-row { margin-top: 5px; }
 .zone-fingerprint .band-label { font-size: 9px; }
 .zone-fingerprint .band-values { font-size: 9px; }
-.zone-inspector-final { border-color: #10B981; box-shadow: 0 0 10px rgba(16,185,129,0.1); }
-.zone-inspector-final-score strong { color: #10B981; font-size: 28px; }
+.zone-inspector-final { border-color: #334155; box-shadow: none; }
+.zone-inspector-final-score strong { color: #38BDF8; font-size: 28px; }
 .zone-inspector-action { color: #FCD34D; font-size: 11px; line-height: 1.45; margin-top: 8px; }
 @media (max-width: 700px) { .zone-inspector-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) {
@@ -1860,3 +1861,143 @@ body.map-expanded-open { overflow: hidden; }
   margin-top: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.4px;
   color: #38BDF8; text-transform: uppercase;
 }
+/* ============ SPECTRAL TOOLBAR (toggle directly above the map) ============ */
+.spectral-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.spectral-toolbar .toggle-stack { min-width: 0; }
+.spectral-toolbar-note {
+  font-size: 9.5px;
+  color: #64748B;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .spectral-toolbar { flex-direction: column; align-items: flex-start; }
+  .spectral-toolbar-note { white-space: normal; }
+}
+
+/* ============ SPECTRAL LOCK (screening gate) ============ */
+.zone-spectral-lock {
+  color: #FBBF24;
+  font-size: 11px;
+  line-height: 1.5;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  border-radius: 5px;
+  padding: 10px 12px;
+}
+
+/* ============ PIXEL HINT / COMPACT PIXEL POPUP ============ */
+.pixel-hint {
+  font-size: 8.5px;
+  color: #64748B;
+  letter-spacing: 0.4px;
+  margin: 4px 0 6px;
+  text-transform: uppercase;
+}
+.pixel-popup {
+  position: fixed;
+  z-index: 9000;
+  min-width: 168px;
+  max-width: 220px;
+  background: rgba(4, 10, 21, 0.97);
+  border: 1px solid #334155;
+  border-radius: 7px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+}
+.pixel-popup[hidden] { display: none; }
+.pixel-popup-head {
+  font-size: 9px;
+  font-weight: 900;
+  color: #94A3B8;
+  letter-spacing: 0.6px;
+}
+.pixel-popup-class { font-size: 13px; font-weight: 900; margin: 3px 0 5px; }
+.pixel-popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 9.5px;
+}
+.pixel-popup-row span { color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
+.pixel-popup-row strong { color: #E2E8F0; text-align: right; }
+.pixel-popup-foot {
+  margin-top: 6px;
+  font-size: 7.5px;
+  color: #64748B;
+  font-style: italic;
+}
+
+/* ============ EXPANDED-MAP ZONE MINI CARD ============ */
+#map-modal-body { position: relative; }
+.expanded-zone-card {
+  position: absolute;
+  z-index: 1500;
+  width: 264px;
+  background: rgba(7, 14, 25, 0.97);
+  border: 1px solid #2B4C7E;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.expanded-zone-card[hidden] { display: none; }
+.ezc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ezc-status { font-size: 10px; font-weight: 900; letter-spacing: 0.6px; }
+.ezc-close {
+  width: 22px; height: 22px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  background: #111827;
+  color: #94A3B8;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ezc-close:hover { color: #F8FAFC; border-color: #F87171; }
+.ezc-title { font-size: 13px; font-weight: 800; color: #F8FAFC; margin-top: 4px; letter-spacing: 0.3px; }
+.ezc-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ezc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 9.5px;
+  border-top: 1px dashed #1E293B;
+  padding-top: 4px;
+}
+.ezc-row span { color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
+.ezc-row strong { color: #E2E8F0; text-align: right; }
+.ezc-foot {
+  margin-top: 8px;
+  font-size: 8px;
+  color: #64748B;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border-top: 1px solid #1E293B;
+  padding-top: 6px;
+}
+
+/* ============ AOI-LEVEL SCOPE NOTE (spectral strip) ============ */
+.spec-scope-note {
+  font-size: 9.5px;
+  color: #94A3B8;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+.spec-scope-note strong { color: #FBBF24; }

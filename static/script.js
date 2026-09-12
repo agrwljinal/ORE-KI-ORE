@@ -89,11 +89,6 @@ let mapInstance = null;
 let layers = { spatial: null, spectral: null, telemetry: null, aoi: null };
 let baseMapLayer;
 let baseMapMode = "dark";
-// The front-end presentation pipeline always runs over the clearly-labelled
-// SYNTHETIC_DEMO chips (no real raster is available), so the vegetation mask
-// and surface renderer are always in demo mode.
-let vegDemoMode = true;
-
 // Space-tech spectral screening state (scan sweep + energy halos).
 let screeningActive = false;
 let haloMarkers = [];
@@ -119,13 +114,29 @@ const PYROLUSITE_REF = { B04: 0.05571, B08: 0.05838, B11: 0.09301, B12: 0.08208 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, s = "") => (n === null || n === undefined) ? "--" : `${n}${s}`;
 
-const priorityStyle = (p) => {
-  // Green = HIGH (most suitable for mining - matches user expectation).
-  if (p === "HIGH")   return { color: "#4ADE80", glow: "rgba(74, 222, 128, 0.70)" };
-  if (p === "MEDIUM") return { color: "#FBBF24", glow: "rgba(251, 191, 36, 0.65)" };
-  return { color: "#F87171", glow: "rgba(248, 113, 113, 0.70)" }; // LOW
+// Canonical operational-status colours. This is the ONE colour language used
+// by the map orbs, zone cards and the map legend:
+//   FLOODED = red, OPERATIONAL = green, SPECTRAL ANOMALY / risk = amber.
+// Priority/prospectivity is carried as TEXT only so colours always mean the
+// same thing on screen.
+const STATUS_META = {
+  FLOODED: { color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
+  OPERATIONAL: { color: "#22C55E", glow: "rgba(34, 197, 94, 0.70)" },
+  "SPECTRAL ANOMALY": { color: "#F59E0B", glow: "rgba(245, 158, 11, 0.70)" },
+  "UNDER INVESTIGATION": { color: "#94A3B8", glow: "rgba(148, 163, 184, 0.65)" },
 };
-const priorityColor = (p) => priorityStyle(p).color;
+// Resolve a zone's canonical status (always prefer the machine field).
+function zoneStatus(z) {
+  if (!z) return "UNDER INVESTIGATION";
+  const s = String(z.status || z.operational_status || "").toUpperCase();
+  if (STATUS_META[s]) return s;
+  if (/flood|inundat|submerg|waterlog/i.test(s)) return "FLOODED";
+  if (/anomal/i.test(s)) return "SPECTRAL ANOMALY";
+  if (/dry|active|operational|normal|open|ok|nominal|running/i.test(s)) return "OPERATIONAL";
+  return "UNDER INVESTIGATION";
+}
+const statusStyle = (z) => STATUS_META[zoneStatus(z)] || STATUS_META["UNDER INVESTIGATION"];
+const statusColor = (z) => statusStyle(z).color;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -155,59 +166,6 @@ function provenanceChip(raw) {
   if (raw === "ZONE_LEVEL_SPECTRAL_UNAVAILABLE")
     return { text: "SPECTRAL DATA UNAVAILABLE FOR THIS ZONE", cls: "prov-unavail" };
   return { text: raw, cls: "prov-unknown" };
-}
-
-// Human-readable summary of the per-zone vegetation (NDVI) mask that ran
-// BEFORE the B04/B08/B11/B12 means were extracted.
-function vegetationMaskSummary(mask, demo = false) {
-  if (!mask) return "Vegetation mask: unavailable.";
-  if (mask.status === "APPLIED") {
-    const src = demo ? "SYNTHETIC_DEMO chip" : "Per-pixel chip";
-    if (!mask.scorable) {
-      return `${src}: ${mask.surface_coverage_pct}% exposed surface remains -- too little to score, spectral result suppressed (no misleading score emitted).`;
-    }
-    return (
-      `${src}: removed ${mask.vegetation_pixels_removed}/${mask.total_pixels} vegetated pixels ` +
-      `(NDVI > ${mask.ndvi_threshold}), excluded ${mask.water_pixels_excluded} water/shadow pixels ` +
-      `(NDVI < ${mask.ndvi_water_low_threshold ?? "-0.10"}), ` +
-      `${mask.valid_pixels_remaining} valid pixels remain (${mask.surface_coverage_pct}% coverage).`
-    );
-  }
-  return "Vegetation mask: not applied (no per-pixel Sentinel-2 data; unmasked synthetic vector used).";
-}
-
-// Full masking chain the demo mode highlights:
-// Total pixels -> vegetation removed -> usable surface pixels -> spectral
-// similarity -> final exploration priority.
-function vegetationChain(mask, z, demo = false) {
-  const id = $("zp-veg-chain");
-  if (!id) return;
-  if (!mask || mask.status !== "APPLIED") {
-    id.textContent = demo || vegDemoMode
-      ? "Chain unavailable: no pixel chip data."
-      : "Enable Synthetic Demo · Veg-Masked Spectral to view the masking chain.";
-    id.classList.toggle("veg-chain-strip-muted", true);
-    return;
-  }
-  id.classList.remove("veg-chain-strip-muted");
-  const total = fmt(mask.total_pixels, " px");
-  const removed = fmt(mask.vegetation_pixels_removed, " px");
-  const excludedWater = fmt(mask.water_pixels_excluded, " px");
-  const valid = fmt(mask.valid_pixels_remaining, " px");
-  const coverage = mask.surface_coverage_pct === null || mask.surface_coverage_pct === undefined
-    ? "--"
-    : `${mask.surface_coverage_pct}%`;
-  const spectral = mask.scorable
-    ? fmt(z.spectral_similarity, "%")
-    : "N/A";
-  const priority = (mask.scorable && z.priority) || "SPATIAL-ONLY";
-  id.innerHTML =
-    `<span>Total <b>${total}</b></span><i>→</i>` +
-    `<span>veg <b>−${removed}</b></span><i>→</i>` +
-    `<span>water <b>−${excludedWater}</b></span><i>→</i>` +
-    `<span>usable <b>${valid}</b> (${coverage})</span><i>→</i>` +
-    `<span>spectral <b>${spectral}</b></span><i>→</i>` +
-    `<span>priority <b>${priority}</b></span>`;
 }
 
 // Highlight the current step in the SPATIAL -> SPECTRAL -> FUSION -> VERIFY strip.
@@ -255,6 +213,7 @@ function closeZonePanel(event, keepOverlay = false) {
     event.preventDefault();
     event.stopPropagation();
   }
+  hidePixelPopup();
   const panel = $("zone-panel");
   if (!panel) return;
   // Accessibility: focus must never be marooned inside a subtree that is
@@ -351,7 +310,7 @@ async function loadZones(demo = false) {
   data.zones.forEach((z) => {
     const lat = z.latitude;
     const lon = z.longitude;
-    const st = priorityStyle(z.spatial_priority_band);
+    const st = statusStyle(z);
 
     // Soft expanding halo ring behind the orb (subtle pulse).
     L.marker([lat, lon], {
@@ -362,6 +321,9 @@ async function loadZones(demo = false) {
         iconAnchor: [30, 30],
       }),
       interactive: false,
+    }).on("add", (ev) => {
+      const ring = ev.target.getElement().querySelector(".zone-ring");
+      if (ring) ring.style.setProperty("--zone-color", st.color);
     }).addTo(layers.spatial);
 
     // Translucent glowing orb marker.
@@ -383,15 +345,13 @@ async function loadZones(demo = false) {
       core.style.setProperty("--zone-glow", st.glow);
       core.title = z.name;
     });
-    const vegLine = demo && z.vegetation_mask && z.vegetation_mask.status === "APPLIED"
-      ? `<br>Veg −${z.vegetation_mask.vegetation_pixels_removed} · water −${z.vegetation_mask.water_pixels_excluded} · usable ${z.vegetation_mask.valid_pixels_remaining} px (${z.vegetation_mask.surface_coverage_pct}%)`
-      : "";
+    const status = zoneStatus(z);
     orb.bindTooltip(
       `<b>${z.name}</b><br>` +
+      `Status: <b>${status}</b><br>` +
       `Spatial: <b>${z.spatial_score}%</b> (${z.spatial_priority_band})<br>` +
       `Spectral: <b>${fmt(z.spectral_similarity, "%")}</b><br>` +
       `Fusion: <b>${z.final_exploration_score}%</b> → ${z.priority}<br>` +
-      vegLine +
       `<i>Click for full intel</i>`,
       { direction: "top", offset: [0, -12] }
     );
@@ -425,6 +385,12 @@ function onZoneSelect(z) {
   const btn = $("btn-surface-filter");
   if (btn) btn.dataset.zoneId = activeZoneId || "";
   focusZone(z);
+  if (expandMapOpen) {
+    // Expanded map: a small floating card near the zone instead of the full
+    // panel, so the expanded map stays usable.
+    showExpandedZoneCard(z);
+    return;
+  }
   showZoneDetail(z.zone_id);
 }
 
@@ -539,6 +505,64 @@ function setViewToggle(mode) {
     if (!el) return;
     el.classList.toggle("active", surfaceMode === m);
     el.setAttribute("aria-pressed", surfaceMode === m ? "true" : "false");
+  });
+}
+
+// ---------------- COMPACT PIXEL READOUT ----------------
+// Clicking an individual pixel on the synthetic surface shows a small popup
+// with only that pixel's class + NDVI (never the giant zone panel).
+let pixelPopupActive = false;
+
+function showPixelPopup(clientX, clientY, info) {
+  const pop = $("pixel-popup");
+  if (!pop) return;
+  const clsLabel = String(info.cls || "exposed").toUpperCase();
+  const clsInfo = {
+    WATER: { color: "#38BDF8", label: "Water surface" },
+    VEGETATION: { color: "#34D399", label: "Vegetation" },
+    EXPOSED: { color: "#E2E8F0", label: "Exposed surface" },
+  }[clsLabel] || { color: "#E2E8F0", label: "Exposed surface" };
+  const ndvi = isFinite(Number(info.ndvi)) ? Number(info.ndvi).toFixed(2) : "--";
+  pop.innerHTML =
+    `<div class="pixel-popup-head">PIXEL ${String(info.j).padStart(2, "0")},${String(info.i).padStart(2, "0")}</div>` +
+    `<div class="pixel-popup-class" style="color:${clsInfo.color}">${clsLabel}</div>` +
+    `<div class="pixel-popup-row"><span>Class</span><strong>${clsInfo.label}</strong></div>` +
+    `<div class="pixel-popup-row"><span>NDVI</span><strong>${ndvi}</strong></div>` +
+    `<div class="pixel-popup-foot">SYNTHETIC DEMO pixel</div>`;
+  pop.style.left = Math.min(clientX + 12, window.innerWidth - 200) + "px";
+  pop.style.top = Math.max(8, clientY - 8) + "px";
+  pop.hidden = false;
+  pixelPopupActive = true;
+}
+
+function hidePixelPopup() {
+  const pop = $("pixel-popup");
+  if (pop) pop.hidden = true;
+  pixelPopupActive = false;
+}
+
+function initPixelPicking() {
+  const canvas = $("zp-surface-canvas");
+  if (!canvas || canvas.dataset.pickWired) return;
+  canvas.dataset.pickWired = "1";
+  canvas.addEventListener("click", (ev) => {
+    if (!surfaceChip) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const size = surfaceChip.size || 20;
+    const fx = (ev.clientX - rect.left) / rect.width;
+    const fy = (ev.clientY - rect.top) / rect.height;
+    const j = Math.max(0, Math.min(size - 1, Math.floor(fx * size)));
+    const i = Math.max(0, Math.min(size - 1, Math.floor(fy * size)));
+    const idx = i * size + j;
+    const classes = surfaceChip.classes || [];
+    const ndvi = (surfaceChip.ndvi && surfaceChip.ndvi[idx]) || null;
+    showPixelPopup(ev.clientX, ev.clientY, {
+      i,
+      j,
+      cls: classes[idx] || "exposed",
+      ndvi,
+    });
   });
 }
 
@@ -722,7 +746,27 @@ function initScreeningToggle() {
       if (screeningActive) dissolveScreening();
       else cancelReveal();
     }
+    // Keep an open zone panel honest: spectral numbers appear/disappear with
+    // the screening toggle instead of contradicting the toolbar.
+    refreshToolbarNote();
+    if (activeZone) {
+      renderSpectralPanel(activeZone);
+      renderFinalPanel(activeZone);
+    }
   });
+}
+
+function refreshToolbarNote() {
+  const note = $("spectral-toolbar-note");
+  const toggle = $("toggle-space-layer");
+  if (!note) return;
+  if (toggle && toggle.checked && screeningActive) {
+    note.textContent = "Screening active — halos show similarity to Pyrolusite. Click a zone to analyse it";
+  } else if (toggle && toggle.checked) {
+    note.textContent = "Screening in progress…";
+  } else {
+    note.textContent = "Screening off — zoom into a zone to analyse it";
+  }
 }
 
 function sweepMap(direction) {
@@ -826,12 +870,20 @@ async function runScreeningReveal() {
   if (token !== revealStopToken) { scanTint(false); return; }
   screeningActive = true;
   scanTint(false);
+  refreshToolbarNote();
+  if (activeZone) {
+    renderSpectralPanel(activeZone);
+    renderFinalPanel(activeZone);
+  }
   setStatus("Spectral screening complete: energy halos show zone-level similarity to Pyrolusite.", "ok");
   setWorkflowStep(2);
 }
 
 function addEnergyHalo(z) {
-  const st = priorityStyle(z.spatial_priority_band);
+  // Halo colour = spectral confirmation tier (HIGH/LIKELY/WEAK/MISMATCH/NO DATA),
+  // so the screening layer never collides with the status-coloured orbs below.
+  const tier = confirmationTier(z.spectral_similarity);
+  const st = { color: tier.color, glow: tier.color };
   const sim = z.spectral_similarity;
   const withheld = sim === null || sim === undefined;
   const radius = 48 + Math.round(((sim || 0) / 100) * 56); // 48..104 px
@@ -890,6 +942,11 @@ async function dissolveScreening() {
   layers.spectral.clearLayers();
   haloMarkers = [];
   screeningActive = false;
+  refreshToolbarNote();
+  if (activeZone) {
+    renderSpectralPanel(activeZone);
+    renderFinalPanel(activeZone);
+  }
   setWorkflowStep(1);
 }
 
@@ -901,17 +958,18 @@ async function showZoneDetail(zoneId) {
   if (!r.ok) return;
   const z = await r.json();
   activeZone = z;
-  const tier = confirmationTier(z.spectral_similarity);
   const panel = $("zone-panel");
   if (!panel) return;
-  const status = z.operational_status || "Unavailable";
-  const water = z.water_depth_m === null || z.water_depth_m === undefined
-    ? "Unavailable"
-    : `${z.water_depth_m.toFixed(1)} m`;
-  const equipment = z.pumps_active === null || z.pumps_active === undefined
-    ? "Unavailable"
-    : `${z.pumps_active} pump${z.pumps_active === 1 ? "" : "s"} active`;
-  const scene = z.spectral_scene;
+  const status = zoneStatus(z);
+  const water =
+    z.water_depth_m === null || z.water_depth_m === undefined
+      ? "--"
+      : `${z.water_depth_m.toFixed(1)} m` +
+        (z.pumps_active === null || z.pumps_active === undefined
+          ? ""
+          : " · " + z.pumps_active + " pump" + (z.pumps_active === 1 ? "" : "s"));
+  const impact = z.production_impact || "--";
+  const action = z.recommended_action || "Field sampling / assay validation";
 
   panel.classList.add("is-open");
   panel.setAttribute("aria-hidden", "false");
@@ -923,62 +981,34 @@ async function showZoneDetail(zoneId) {
   const lat = z.latitude.toFixed(4), lon = z.longitude.toFixed(4);
   $("zp-coords").textContent = `${lat}°N · ${lon}°E`;
 
-  $("zp-operational-status").textContent = status;
+  // OPERATIONAL STATUS (canonical values from the backend)
+  const stEl = $("zp-operational-status");
+  stEl.textContent = status;
+  stEl.style.color = statusColor(z);
+  const impEl = $("zp-production-impact");
+  impEl.textContent = impact;
+  impEl.style.color =
+    impact === "HIGH" ? "#EF4444"
+    : impact === "REVIEW" || impact === "MODERATE" || impact === "MEDIUM" ? "#F59E0B"
+    : "#22C55E";
   $("zp-water").textContent = water;
-  $("zp-equipment").textContent = equipment;
-  $("zp-clearance").textContent = "Not supplied by backend";
-  $("zp-ore").textContent = "No ore-grade measurement in prototype";
+  $("zp-recommended-action").textContent = action;
 
-  // SCORE ROW
+  // SPATIAL PROSPECTIVITY
   $("zp-spatial").textContent = fmt(z.spatial_score, "%");
   $("zp-spatial-band").textContent = z.spatial_priority_band;
-  $("zp-spatial-band").style.color = priorityColor(z.spatial_priority_band);
   $("zp-spatial-reason").textContent =
     `Spatial screening identifies this as a ${String(z.spatial_priority_band || "unavailable").toLowerCase()} prospectivity zone.`;
 
-  if (z.spectral_similarity === null) {
-    $("zp-spectral").textContent = "N/A";
-    $("zp-spectral-band").textContent = "UNAVAILABLE";
-    $("zp-spectral-band").style.color = "#64748B";
-    $("zp-best-mineral").textContent = "Best Mineral Match: unavailable";
-  } else {
-    const bestName = z.best_mineral_match
-      ? z.best_mineral_match.charAt(0).toUpperCase() + z.best_mineral_match.slice(1)
-      : "N/A";
-    $("zp-spectral").textContent = fmt(z.spectral_similarity, "%");
-    $("zp-spectral-band").textContent = tier.label;
-    $("zp-spectral-band").style.color = tier.color;
-    $("zp-best-mineral").textContent = `Best Mineral Match: ${bestName}`;
-  }
+  // SPECTRAL INTELLIGENCE — gated behind the screening toggle. No spectral
+  // percentages are shown until Spectral Mineral Screening is enabled.
+  renderSpectralPanel(z);
 
-  const sceneTxt = scene
-    ? `${scene.platform} · ${scene.date} · ${scene.scene_id}`
-    : "Sentinel-2 scene metadata unavailable";
-  $("zp-spectral-scene").textContent =
-    `SYNTHETIC DEMO chip · ${z.demo_chip ? `${z.demo_chip.total_pixels} px · seed ${z.demo_chip.seed}` : "no chip meta"} · not a real scene`;
+  // FINAL EXPLORATION PRIORITY — when screening is off this is spatial-only.
+  renderFinalPanel(z);
 
-  $("zp-final").textContent = fmt(z.final_exploration_score, "%");
-  $("zp-priority").textContent = z.priority;
-  $("zp-priority").style.color = priorityColor(z.priority);
-  $("zp-priority").style.borderColor = priorityColor(z.priority);
-
-  // BAND FINGERPRINT (Sentinel-2 4 bands vs Pyrolusite reference)
-  renderFingerprint(z.zone_reflectance);
-
-  // WHY / ACTION
-  $("zp-explanation").textContent = z.explanation;
-  $("zp-action").textContent = "Recommended Action: " + (z.recommended_action || "Field sampling / assay verification");
-
-  // PROVENANCE
-  const prov = provenanceChip(z.data_provenance);
-  const provEl = $("zp-provenance");
-  provEl.textContent = prov.text;
-  provEl.className = "provenance-chip " + prov.cls;
-  $("zp-scientific-note").textContent = z.scientific_note;
-
-  // VEGETATION (NDVI) MASK STATUS
-  $("zp-veg-mask").textContent = vegetationMaskSummary(z.vegetation_mask, true);
-  vegetationChain(z.vegetation_mask, z, true);
+  // BAND FINGERPRINT (Sentinel-2 4 bands vs Pyrolusite reference) is rendered
+  // only when screening is active (renderSpectralPanel does it).
 
   // SYNTHETIC SURFACE RENDERER (RAW SURFACE)
   surfaceMode = "raw";
@@ -1018,8 +1048,67 @@ async function showZoneDetail(zoneId) {
   mountSurfaceOverlay(z);
 
   // Advance workflow strip: 1 spatial done, 2 spectral rendered, 3 fusion computed.
-  // 4 (Field Verification) only lights up when HIGH priority.
-  setWorkflowStep(z.priority === "HIGH" ? 4 : 3);
+  // 4 (Field Verification) only lights up when fused priority is HIGH.
+  const fusedPriority = screeningActive ? z.priority : null;
+  setWorkflowStep(fusedPriority === "HIGH" ? 4 : screeningActive ? 3 : 3);
+}
+
+// Renders the Spectral Intelligence section honouring the screening-toggle gate.
+// Also used to refresh an already-open panel when the toggle flips.
+function renderSpectralPanel(z) {
+  const lock = $("zp-spectral-lock");
+  const body = $("zp-spectral-body");
+  if (!lock || !body) return;
+  if (!screeningActive) {
+    lock.hidden = false;
+    body.hidden = true;
+    return;
+  }
+  lock.hidden = true;
+  body.hidden = false;
+  const tier = confirmationTier(z.spectral_similarity);
+  const scene = z.spectral_scene;
+  if (z.spectral_similarity === null) {
+    $("zp-spectral").textContent = "N/A";
+    $("zp-spectral-band").textContent = "SCORE WITHHELD";
+    $("zp-spectral-band").style.color = "#64748B";
+    $("zp-best-mineral").textContent = "Best Mineral Match: reference unavailable";
+  } else {
+    const bestName = z.best_mineral_match
+      ? z.best_mineral_match.charAt(0).toUpperCase() + z.best_mineral_match.slice(1)
+      : "N/A";
+    $("zp-spectral").textContent = fmt(z.spectral_similarity, "%");
+    $("zp-spectral-band").textContent = tier.label;
+    $("zp-spectral-band").style.color = tier.color;
+    $("zp-best-mineral").textContent = `Best Mineral Match: ${bestName}`;
+  }
+  $("zp-spectral-scene").textContent = scene
+    ? `${scene.platform} · ${scene.date} · ${scene.scene_id} · tile ${scene.tile || "--"} · cloud ${scene.cloud_cover_pct != null ? scene.cloud_cover_pct + "%" : "--"}`
+    : "Sentinel-2 L2A scene metadata unavailable";
+  renderFingerprint(z.zone_reflectance);
+  const prov = provenanceChip(z.data_provenance);
+  const provEl = $("zp-provenance");
+  provEl.textContent = prov.text;
+  provEl.className = "provenance-chip " + prov.cls;
+}
+
+// Final priority: full spatial+spectral fusion when screening is on, otherwise
+// an explicitly-labelled spatial-only estimate (no hidden spectral influence).
+function renderFinalPanel(z) {
+  $("zp-priority").style.color = "";
+  $("zp-priority").style.borderColor = "";
+  if (!screeningActive) {
+    $("zp-final").textContent = fmt(z.spatial_score, "%");
+    $("zp-priority").textContent = "SPATIAL-ONLY";
+    $("zp-explanation").textContent =
+      `Screening inactive — priority shown from spatial data alone. Enable Spectral Mineral Screening for the fused ${z.spatial_priority_band} evaluation.`;
+    $("zp-action").textContent = "Recommended action: " + (z.recommended_action || "Field sampling / assay validation");
+    return;
+  }
+  $("zp-final").textContent = fmt(z.final_exploration_score, "%");
+  $("zp-priority").textContent = z.priority;
+  $("zp-explanation").textContent = z.explanation;
+  $("zp-action").textContent = "Recommended action: " + (z.recommended_action || "Field sampling / assay validation");
 }
 
 // Renders four horizontal bars per band, showing the zone reflectance vs pyrolusite reference.
@@ -1514,7 +1603,7 @@ function renderSpectral(data) {
   const sim = Number(data.similarity);
   const title = document.getElementById("spectral-title");
   if (title) {
-    title.textContent = `${isFinite(sim) ? (sim * 100).toFixed(2) : "--"}% ${(data.label || "SPECTRAL SIMILARITY").toUpperCase()}`;
+    title.textContent = `${isFinite(sim) ? (sim * 100).toFixed(2) : "--"}% ${(data.label || "SPECTRAL SIMILARITY").toUpperCase()} · AOI-LEVEL SCREENING`;
   }
   const tags = document.getElementById("spectral-tags");
   if (tags) {
@@ -1612,53 +1701,16 @@ function renderPitGrid(pockets) {
     return;
   }
   pockets.forEach((p) => {
-    const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
-    const raw = String(p.status || zone.operational_status || "").toLowerCase();
-
-    let label;
-    let cls;
-    if (/flood|inundat|submerg|waterlogged/i.test(raw)) {
-      label = "FLOODED";
-      cls = "danger";
-    } else if (/anomal/i.test(raw)) {
-      label = "SPECTRAL ANOMALY";
-      cls = "warning";
-    } else if (/dry|active|operational|normal|open|ok|nominal|running/i.test(raw)) {
-      label = "OPERATIONAL";
-      cls = "success";
-    } else {
-      label = "UNDER INVESTIGATION";
-      cls = "warning";
-    }
-
-    const wd =
-      p.water_depth_m != null
-        ? Number(p.water_depth_m)
-        : zone.water_depth_m != null
-          ? Number(zone.water_depth_m)
-          : null;
-    const pumps =
-      p.pumps_active != null
-        ? Number(p.pumps_active)
-        : zone.pumps_active != null
-          ? Number(zone.pumps_active)
-          : null;
-
-    let impact = "—";
-    if (label === "FLOODED") impact = wd == null || wd >= 1.5 ? "HIGH" : "MODERATE";
-    else if (label === "SPECTRAL ANOMALY") impact = "REVIEW";
-    else if (label === "OPERATIONAL") impact = "LOW";
-
-    const action =
-      label === "FLOODED"
-        ? "Activate dewatering"
-        : label === "SPECTRAL ANOMALY"
-          ? "Inspect zone"
-          : label === "OPERATIONAL"
-            ? "Continue operations"
-            : "Review & investigate";
-
-    const sim = monitoringSim(zone, { ...p, water_depth_m: wd });
+    // Every value shown here comes from the canonical zone record exposed by
+    // the backend (constants.CANDIDATE_ZONES -> /api/telemetry). The front end
+    // never re-derives status/impact/action.
+    const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id);
+    const status = zoneStatus(zone || { status: p.status });
+    const st = STATUS_META[status] || STATUS_META["UNDER INVESTIGATION"];
+    const wd = p.water_depth_m;
+    const pumps = p.pumps_active;
+    const impact = p.production_impact || (zone && zone.production_impact) || "LOW";
+    const action = p.recommended_action || (zone && zone.recommended_action) || "Review & investigate";
 
     const box = document.createElement("div");
     box.className = "pit-box";
@@ -1668,28 +1720,22 @@ function renderPitGrid(pockets) {
     name.textContent = p.name || zone.name || p.id || "Pit";
     box.appendChild(name);
 
-    const st = document.createElement("div");
-    st.className = "pit-state " + cls;
-    st.textContent = label;
-    box.appendChild(st);
+    const stEl = document.createElement("div");
+    stEl.className = "pit-state";
+    stEl.textContent = status;
+    stEl.style.color = st.color;
+    box.appendChild(stEl);
 
     const meta = document.createElement("div");
     meta.className = "pit-meta";
 
-    let waterLine = "Water depth: --";
+    let waterLine = "Water condition: --";
     if (wd != null) {
-      waterLine = `Water depth: ${wd.toFixed(1)} m`;
+      waterLine = `Water condition: ${Number(wd).toFixed(1)} m`;
       if (pumps != null) waterLine += ` · ${pumps} pump${pumps === 1 ? "" : "s"}`;
     }
     meta.appendChild(metaRow(waterLine));
     meta.appendChild(metaRow(`Production impact: ${impact}`));
-
-    if (label === "SPECTRAL ANOMALY") {
-      meta.appendChild(
-        metaRow(`Spectral deviation ${sim.deviation} · confidence ${sim.confidence}% · SIM`)
-      );
-    }
-
     box.appendChild(meta);
 
     const act = document.createElement("div");
@@ -1738,6 +1784,7 @@ function closeExpandedMap() {
   const modal = document.getElementById("map-expand-modal");
   const wrap = document.querySelector(".map-frame-wrap");
   if (!modal || !wrap || !expandMapOpen) return;
+  hideExpandedZoneCard();
   modal.hidden = true;
   if (expandOriginalParent && expandOriginalParent !== modal) {
     expandOriginalParent.appendChild(wrap);
@@ -1751,6 +1798,90 @@ function closeExpandedMap() {
   }
   const btn = document.getElementById("btn-expand-map");
   if (btn) btn.focus();
+}
+
+// ---------------- EXPANDED-MODE ZONE MINI CARD ----------------
+// In expanded view, clicking a zone opens a small card anchored near the zone
+// marker instead of covering the map with the full panel.
+let expandedCardZone = null;
+let expandedCardWired = false;
+
+function showExpandedZoneCard(z) {
+  const card = document.getElementById("expanded-zone-card");
+  const body = document.getElementById("map-modal-body");
+  if (!card || !body || !expandMapOpen) return;
+  expandedCardZone = z;
+  const status = zoneStatus(z);
+  const st = STATUS_META[status] || STATUS_META["UNDER INVESTIGATION"];
+  const water =
+    z.water_depth_m == null ? "--" : `${Number(z.water_depth_m).toFixed(1)} m`;
+  const impact = z.production_impact || "LOW";
+  const action = z.recommended_action || "Review & investigate";
+  const sim = z.spectral_similarity;
+  const simLine =
+    screeningActive && sim != null
+      ? `<div class="ezc-row"><span>Spectral</span><strong>${fmt(sim, "%")} · ${confirmationTier(sim).label}</strong></div>`
+      : "";
+  card.innerHTML =
+    `<div class="ezc-head">` +
+    `<span class="ezc-status" style="color:${st.color}">${status}</span>` +
+    `<button type="button" class="ezc-close" id="ezc-close" aria-label="Close zone card">×</button>` +
+    `</div>` +
+    `<div class="ezc-title">${z.name || z.zone_id}</div>` +
+    `<div class="ezc-rows">` +
+    `<div class="ezc-row"><span>Water condition</span><strong>${water}</strong></div>` +
+    `<div class="ezc-row"><span>Production impact</span><strong>${impact}</strong></div>` +
+    `<div class="ezc-row"><span>Recommended action</span><strong>${action}</strong></div>` +
+    simLine +
+    `</div>` +
+    `<div class="ezc-foot">SYNTHETIC DEMO zone data</div>`;
+  card.hidden = false;
+  const closeBtn = document.getElementById("ezc-close");
+  if (closeBtn) {
+    closeBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      hideExpandedZoneCard();
+    };
+  }
+  wireExpandedCardReposition();
+  positionExpandedZoneCard(z);
+}
+
+function hideExpandedZoneCard() {
+  const card = document.getElementById("expanded-zone-card");
+  if (card) card.hidden = true;
+  expandedCardZone = null;
+}
+
+function positionExpandedZoneCard(z) {
+  const card = document.getElementById("expanded-zone-card");
+  const body = document.getElementById("map-modal-body");
+  if (!card || !body || !map || card.hidden) return;
+  const pt = map.latLngToContainerPoint([z.latitude, z.longitude]);
+  const bw = body.clientWidth || 800;
+  const bh = body.clientHeight || 600;
+  const cw = card.offsetWidth || 264;
+  const ch = card.offsetHeight || 130;
+  let left = pt.x + 16;
+  if (left + cw > bw - 8) left = Math.max(8, pt.x - cw - 16);
+  let top = pt.y - ch / 2;
+  top = Math.max(8, Math.min(top, bh - ch - 8));
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+}
+
+function wireExpandedCardReposition() {
+  if (expandedCardWired || !map) return;
+  expandedCardWired = true;
+  map.on("move zoom", () => {
+    if (expandMapOpen && expandedCardZone) positionExpandedZoneCard(expandedCardZone);
+  });
+  map.on("click", (ev) => {
+    if (!expandMapOpen) return;
+    const el = ev.originalEvent && ev.originalEvent.target;
+    if (el && el.closest && el.closest(".zone-orb, .energy-halo, .telemetry-dot")) return;
+    hideExpandedZoneCard();
+  });
 }
 
 function initExpandMap() {
@@ -1801,7 +1932,15 @@ async function loadTelemetry() {
             offset: [0, -10],
             className: "monitor-tooltip",
           })
-          .on("click", () => showZoneDetail(p.id))
+          .on("click", () => {
+            const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {
+              zone_id: p.id,
+              name: p.name,
+              latitude: p.lat,
+              longitude: p.lon,
+            };
+            onZoneSelect(zone);
+          })
           .addTo(layers.telemetry);
       });
     }
@@ -1901,6 +2040,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("click", (event) => {
     if (event.target.closest("#zone-panel-close")) closeZonePanel(event);
   }, true);
+  // Clicking anywhere except the pixel canvas / popup dismisses the readout.
+  document.addEventListener("click", (event) => {
+    const t = event.target;
+    if (!t || !t.closest) return;
+    if (t.closest("#pixel-popup") || t.closest("#zp-surface-canvas")) return;
+    hidePixelPopup();
+  }, true);
+  initPixelPicking();
   updateClock();
   setInterval(updateClock, 1000);
   bindControls();
