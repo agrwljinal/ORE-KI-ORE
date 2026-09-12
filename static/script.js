@@ -1538,6 +1538,61 @@ function renderSpectral(data) {
 }
 
 // ---------------- PIT GRID ----------------
+// Simulated borehole-style monitoring readings. Values derive from the real
+// synthetic chip NDVI where available; everything else is clearly SIM-tagged.
+function monitoringSim(zone, pocket) {
+  const ndviArr =
+    zone && zone.demo_chip && Array.isArray(zone.demo_chip.ndvi) && zone.demo_chip.ndvi.length
+      ? zone.demo_chip.ndvi
+      : null;
+  let ndvi;
+  if (ndviArr && ndviArr.length) {
+    ndvi = (ndviArr.reduce((a, b) => a + b, 0) / ndviArr.length).toFixed(2);
+  } else {
+    const salt = zone && zone.zone_id ? zone.zone_id.charCodeAt(zone.zone_id.length - 1) : 0;
+    ndvi = (0.10 + (salt % 4) * 0.05).toFixed(2);
+  }
+  const zoneW = zone && zone.water_depth_m != null ? Number(zone.water_depth_m) : null;
+  const wd = pocket && pocket.water_depth_m != null ? Number(pocket.water_depth_m) : zoneW;
+  const moisture = wd == null ? "LOW" : wd >= 3 ? "HIGH" : wd >= 0.5 ? "MODERATE" : "LOW";
+  const rawStatus = String((pocket && pocket.status) || (zone && zone.operational_status) || "").toLowerCase();
+  const isAnomaly = /anomal/i.test(rawStatus);
+  const sim =
+    zone && typeof zone.spectral_similarity === "number" ? zone.spectral_similarity : null;
+  const simPct = sim !== null ? (sim > 1 ? sim : sim * 100) : null;
+  let deviation;
+  let confidence;
+  if (isAnomaly || simPct === null) {
+    deviation = "+23%";
+    confidence = 81;
+  } else {
+    deviation = "+" + Math.max(0.1, 100 - simPct).toFixed(1) + "%";
+    confidence = Math.round(simPct * 0.9);
+  }
+  return { ndvi, moisture, deviation, confidence };
+}
+
+function monitorTooltipHtml(idx, p, zone) {
+  const sim = monitoringSim(zone, p);
+  const title = p.name || (zone && zone.name) || `Monitoring Point ${idx + 1}`;
+  return (
+    `<div class="monitor-tip">` +
+    `<div class="monitor-tip-head">` +
+    `<span class="monitor-tip-title">Monitoring Point ${String(idx + 1).padStart(2, "0")}</span>` +
+    `<span class="monitor-sim-tag">SIM</span>` +
+    `</div>` +
+    `<div class="monitor-tip-sub">${title}</div>` +
+    `<div class="monitor-tip-meta">` +
+    `<div><span>NDVI</span><strong>${sim.ndvi}</strong></div>` +
+    `<div><span>Surface moisture</span><strong>${sim.moisture}</strong></div>` +
+    `<div><span>Spectral deviation</span><strong>${sim.deviation}</strong></div>` +
+    `<div><span>Risk confidence</span><strong>${sim.confidence}%</strong></div>` +
+    `</div>` +
+    `<div class="monitor-tip-note">Simulated demo reading — not a real satellite observation.</div>` +
+    `</div>`
+  );
+}
+
 function renderPitGrid(pockets) {
   const grid = document.getElementById("pit-telemetry-grid");
   if (!grid) return;
@@ -1557,49 +1612,166 @@ function renderPitGrid(pockets) {
     return;
   }
   pockets.forEach((p) => {
+    const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
+    const raw = String(p.status || zone.operational_status || "").toLowerCase();
+
+    let label;
+    let cls;
+    if (/flood|inundat|submerg|waterlogged/i.test(raw)) {
+      label = "FLOODED";
+      cls = "danger";
+    } else if (/anomal/i.test(raw)) {
+      label = "SPECTRAL ANOMALY";
+      cls = "warning";
+    } else if (/dry|active|operational|normal|open|ok|nominal|running/i.test(raw)) {
+      label = "OPERATIONAL";
+      cls = "success";
+    } else {
+      label = "UNDER INVESTIGATION";
+      cls = "warning";
+    }
+
+    const wd =
+      p.water_depth_m != null
+        ? Number(p.water_depth_m)
+        : zone.water_depth_m != null
+          ? Number(zone.water_depth_m)
+          : null;
+    const pumps =
+      p.pumps_active != null
+        ? Number(p.pumps_active)
+        : zone.pumps_active != null
+          ? Number(zone.pumps_active)
+          : null;
+
+    let impact = "—";
+    if (label === "FLOODED") impact = wd == null || wd >= 1.5 ? "HIGH" : "MODERATE";
+    else if (label === "SPECTRAL ANOMALY") impact = "REVIEW";
+    else if (label === "OPERATIONAL") impact = "LOW";
+
+    const action =
+      label === "FLOODED"
+        ? "Activate dewatering"
+        : label === "SPECTRAL ANOMALY"
+          ? "Inspect zone"
+          : label === "OPERATIONAL"
+            ? "Continue operations"
+            : "Review & investigate";
+
+    const sim = monitoringSim(zone, { ...p, water_depth_m: wd });
+
     const box = document.createElement("div");
     box.className = "pit-box";
+
     const name = document.createElement("div");
     name.className = "pit-name";
-    name.textContent = p.name || p.pocket_id || p.id || "Pit";
+    name.textContent = p.name || zone.name || p.id || "Pit";
     box.appendChild(name);
 
-    const grade = Number(p.grade_pct);
     const st = document.createElement("div");
-    if (isFinite(grade)) {
-      if (grade >= 44) {
-        st.className = "pit-state success";
-        st.textContent = `${grade}% Mn · HIGH GRADE`;
-      } else if (grade >= 34) {
-        st.className = "pit-state warning";
-        st.textContent = `${grade}% Mn · MEDIUM GRADE`;
-      } else {
-        st.className = "pit-state danger";
-        st.textContent = `${grade}% Mn · LOW GRADE`;
-      }
-    } else if (p.status) {
-      st.className = "pit-state warning";
-      st.textContent = String(p.status).toUpperCase();
-    } else {
-      st.className = "pit-state warning";
-      st.textContent = "Telemetry pending";
-    }
+    st.className = "pit-state " + cls;
+    st.textContent = label;
     box.appendChild(st);
 
-    const subText = p.mine_name || p.mine || null;
-    if (p.water_depth_m != null) {
-      const sub = document.createElement("div");
-      sub.className = "pit-subdetail";
-      sub.textContent = `Water depth: ${p.water_depth_m} m`;
-      box.appendChild(sub);
-    } else if (subText) {
-      const sub = document.createElement("div");
-      sub.className = "pit-subdetail";
-      sub.textContent = subText;
-      box.appendChild(sub);
+    const meta = document.createElement("div");
+    meta.className = "pit-meta";
+
+    let waterLine = "Water depth: --";
+    if (wd != null) {
+      waterLine = `Water depth: ${wd.toFixed(1)} m`;
+      if (pumps != null) waterLine += ` · ${pumps} pump${pumps === 1 ? "" : "s"}`;
     }
+    meta.appendChild(metaRow(waterLine));
+    meta.appendChild(metaRow(`Production impact: ${impact}`));
+
+    if (label === "SPECTRAL ANOMALY") {
+      meta.appendChild(
+        metaRow(`Spectral deviation ${sim.deviation} · confidence ${sim.confidence}% · SIM`)
+      );
+    }
+
+    box.appendChild(meta);
+
+    const act = document.createElement("div");
+    act.className = "pit-action";
+    act.textContent = "→ " + action;
+    box.appendChild(act);
+
     grid.appendChild(box);
   });
+}
+
+function metaRow(text) {
+  const div = document.createElement("div");
+  div.className = "pit-meta-row";
+  div.textContent = text;
+  return div;
+}
+
+// ---------------- EXPANDED MAP MODAL ----------------
+let expandMapOpen = false;
+let expandSavedView = null;
+let expandOriginalParent = null;
+let expandWired = false;
+
+function openExpandedMap() {
+  const modal = document.getElementById("map-expand-modal");
+  const body = document.getElementById("map-modal-body");
+  const wrap = document.querySelector(".map-frame-wrap");
+  if (!modal || !body || !wrap || expandMapOpen) return;
+  expandOriginalParent = wrap.parentElement;
+  expandSavedView = map ? [map.getCenter(), map.getZoom()] : null;
+  body.appendChild(wrap);
+  modal.hidden = false;
+  expandMapOpen = true;
+  document.body.classList.add("map-expanded-open");
+  const closeBtn = document.getElementById("btn-close-expanded-map");
+  if (closeBtn) closeBtn.focus();
+  if (map) {
+    map.invalidateSize();
+    requestAnimationFrame(() => map.invalidateSize());
+    map.flyTo([21.845, 80.232], Math.max(map.getZoom(), 15), { duration: 0.9 });
+  }
+}
+
+function closeExpandedMap() {
+  const modal = document.getElementById("map-expand-modal");
+  const wrap = document.querySelector(".map-frame-wrap");
+  if (!modal || !wrap || !expandMapOpen) return;
+  modal.hidden = true;
+  if (expandOriginalParent && expandOriginalParent !== modal) {
+    expandOriginalParent.appendChild(wrap);
+  }
+  expandMapOpen = false;
+  document.body.classList.remove("map-expanded-open");
+  if (map) {
+    if (expandSavedView) map.setView(expandSavedView[0], expandSavedView[1], { animate: false });
+    map.invalidateSize();
+    requestAnimationFrame(() => map.invalidateSize());
+  }
+  const btn = document.getElementById("btn-expand-map");
+  if (btn) btn.focus();
+}
+
+function initExpandMap() {
+  if (expandWired) return;
+  expandWired = true;
+  const btn = document.getElementById("btn-expand-map");
+  const closeBtn = document.getElementById("btn-close-expanded-map");
+  const modal = document.getElementById("map-expand-modal");
+  if (btn) btn.addEventListener("click", openExpandedMap);
+  if (closeBtn) closeBtn.addEventListener("click", closeExpandedMap);
+  if (modal) {
+    modal.addEventListener("click", (event) => {
+      if (event.target.classList && event.target.classList.contains("map-modal-backdrop")) closeExpandedMap();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (expandMapOpen && event.key === "Escape") {
+        event.stopPropagation();
+        closeExpandedMap();
+      }
+    });
+  }
 }
 
 // ---------------- TELEMETRY ----------------
@@ -1616,14 +1788,19 @@ async function loadTelemetry() {
 
     if (map && layers.telemetry) {
       layers.telemetry.clearLayers();
-      (data.ore_pockets || []).forEach((p) => {
+      (data.ore_pockets || []).forEach((p, i) => {
+        const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
         const icon = L.divIcon({
           className: "telemetry-marker",
           html: `<div class="telemetry-dot">●</div>`,
           iconSize: [22, 22],
         });
-        L.marker([p.lat, p.lon], { icon })
-          .bindTooltip(`<b>${p.name}</b><br>Status: ${p.status}<br>Pumps active: ${p.pumps_active}`)
+        L.marker([p.lat, p.lon], { icon, riseOnHover: true })
+          .bindTooltip(monitorTooltipHtml(i, p, zone), {
+            direction: "top",
+            offset: [0, -10],
+            className: "monitor-tooltip",
+          })
           .on("click", () => showZoneDetail(p.id))
           .addTo(layers.telemetry);
       });
@@ -1727,6 +1904,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updateClock();
   setInterval(updateClock, 1000);
   bindControls();
+  initExpandMap();
   init();
   setInterval(loadTelemetry, 5000);
 });

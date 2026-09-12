@@ -1737,3 +1737,126 @@ label {
 .map-light-mode .zone-surface-overlay {
   box-shadow: 0 0 26px rgba(0, 80, 160, 0.35);
 }
+
+/* ============ SPACE-ASSISTED POSITIONING TAG ============ */
+.space-assist-tag {
+  font-size: 8px; font-weight: 900; letter-spacing: 1.1px; text-transform: uppercase;
+  color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(14, 116, 214, 0.12); border-radius: 999px;
+  padding: 2px 8px; margin-left: 8px; vertical-align: middle;
+}
+
+/* ============ EXPANDED MAP MODAL ============ */
+.map-frame-wrap { position: relative; margin-bottom: 12px; }
+
+.map-expand-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 1000;
+  background: rgba(4, 10, 21, 0.82); color: #E2E8F0;
+  border: 1px solid rgba(148, 163, 184, 0.45); border-radius: 6px;
+  font-size: 9px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
+  padding: 5px 10px; cursor: pointer;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.map-expand-btn:hover { background: rgba(12, 74, 110, 0.9); color: #FFFFFF; border-color: #38BDF8; }
+.map-expand-btn:focus-visible { outline: 2px solid #38BDF8; outline-offset: 2px; }
+
+.map-legend {
+  position: absolute; left: 10px; bottom: 10px; z-index: 1000;
+  pointer-events: none; background: rgba(4, 10, 21, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.38); border-radius: 8px;
+  padding: 7px 10px; display: flex; flex-direction: column; gap: 4px;
+  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  min-width: 180px;
+}
+.map-legend-title {
+  font-size: 8px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
+  color: #64748B; margin-bottom: 2px;
+}
+.map-legend-item {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 9px; color: #CBD5E1; letter-spacing: 0.4px; white-space: nowrap;
+}
+.legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.swatch-monitor { width: 10px; height: 10px; border-radius: 50%; background: #F59E0B;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.8); }
+.swatch-boundary { background: #E879F9; height: 3px; border-radius: 2px; box-shadow: 0 0 6px rgba(232, 121, 249, 0.7); }
+.swatch-veg { border: 2px dashed #38BDF8; border-radius: 3px; background: rgba(56, 189, 248, 0.15); }
+.swatch-flooded { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.swatch-operational { background: #22C55E; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
+.swatch-anomaly { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+
+.map-expand-modal { position: fixed; inset: 0; z-index: 5000;
+  display: flex; align-items: center; justify-content: center; }
+.map-expand-modal[hidden] { display: none; }
+.map-modal-backdrop { position: absolute; inset: 0; background: rgba(3, 8, 16, 0.72);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.map-modal {
+  position: relative; width: min(84vw, 1240px); height: min(82vh, 820px);
+  background: #0B1322; border: 1px solid rgba(96, 165, 250, 0.30); border-radius: 14px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.65);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.map-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: #0D1526;
+}
+.map-modal-head { display: flex; flex-direction: column; gap: 2px; }
+.map-modal-title { font-size: 13px; font-weight: 800; color: #F8FAFC; letter-spacing: 0.5px; }
+.map-modal-sub { font-size: 8.5px; font-weight: 700; color: #64748B; letter-spacing: 1.1px; text-transform: uppercase; }
+.map-modal-close {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(15, 23, 42, 0.9); color: #94A3B8;
+  border: 1px solid rgba(148, 163, 184, 0.4); font-size: 18px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.map-modal-close:hover { color: #F87171; border-color: #F87171; background: rgba(69, 10, 10, 0.5); }
+.map-modal-close:focus-visible { outline: 2px solid #38BDF8; outline-offset: 2px; }
+.map-modal-body { flex: 1; position: relative; min-height: 0; }
+.map-expand-modal .map-frame-wrap { height: 100%; margin: 0; }
+.map-expand-modal .map-render-frame { height: 100%; margin: 0; border: 0; border-radius: 0; }
+.map-expand-modal .map-expand-btn { display: none; }
+.map-modal-note {
+  font-size: 8.5px; color: #64748B; padding: 6px 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14); background: #0D1526;
+  font-style: italic; letter-spacing: 0.3px;
+}
+body.map-expanded-open { overflow: hidden; }
+
+/* ============ MONITORING POINT TOOLTIP ============ */
+.leaflet-tooltip.monitor-tooltip {
+  background: rgba(4, 10, 21, 0.95); border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 8px; color: #E2E8F0; padding: 8px 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); max-width: 220px;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.leaflet-tooltip.monitor-tooltip::before {
+  border-top-color: rgba(245, 158, 11, 0.55);
+}
+.map-expand-modal .leaflet-tooltip.monitor-tooltip { color: #E2E8F0; }
+.monitor-tip { display: flex; flex-direction: column; gap: 4px; }
+.monitor-tip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.monitor-tip-title { font-size: 11px; font-weight: 900; color: #FBBF24; letter-spacing: 0.4px; }
+.monitor-sim-tag {
+  font-size: 7.5px; font-weight: 900; letter-spacing: 0.8px; color: #000;
+  background: #F59E0B; border-radius: 3px; padding: 1px 5px;
+}
+.monitor-tip-sub { font-size: 10px; color: #94A3B8; }
+.monitor-tip-meta { display: flex; flex-direction: column; gap: 3px;
+  background: #060B14; border: 1px solid #1E293B; border-radius: 5px; padding: 6px 8px; }
+.monitor-tip-meta > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.monitor-tip-meta span { font-size: 9px; color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
+.monitor-tip-meta strong { font-size: 10px; color: #E2E8F0; text-align: right; font-family: "JetBrains Mono", Menlo, Consolas, monospace; }
+.monitor-tip-note { font-size: 7.5px; font-style: italic; color: #64748B; }
+
+/* ============ PIT STATUS CARDS (enhanced) ============ */
+.pit-meta { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
+.pit-meta-row { font-size: 9.5px; color: var(--text-muted); }
+.pit-action {
+  margin-top: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.4px;
+  color: #38BDF8; text-transform: uppercase;
+}
