@@ -161,3 +161,24 @@ their coordinates are mine anchors rather than genuine assay coordinates.
 For a real prediction, replace `predict_demo_zones()` with a provider that
 returns georeferenced GeoJSON cells containing `geometry`, `cell_id`,
 `mine_name`, and `predicted_mn_pct` and/or `base_mn_probability`.
+
+## Customer-contract delivery ledger
+
+The Flask command dashboard also includes a small customer-contract entity
+layer.  Demo contracts are seeded from `data/customers.json` and can be added
+from the **Customer Contract Command** panel for the duration of the running
+server.  Each contract contains:
+
+- customer name and assigned mine;
+- contracted quantity in MT and the customer-specific offered price per MT;
+- delivery deadline; and
+- either a fixed `INR_PER_MT` short-delivery penalty or a
+  `PERCENT_OF_SHORT_VALUE` penalty.
+
+For the currently selected mine, forecast daily ROM is allocated to active
+contracts in earliest-deadline order.  The dashboard then reports forecast
+short delivery, contract value at risk, and penalty liability.  The hero
+ledger therefore becomes **Contract Delivery Liability** rather than a flat
+per-tonne loss estimate whenever active contracts exist.  It is a forecast
+exposure for the demo, not an invoice, accrued charge, or substitute for a
+contract-management system.

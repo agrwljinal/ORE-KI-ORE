@@ -1,0 +1,16 @@
+{
+  "customers": [
+    {"customer_id": "CUS-001", "customer_name": "Vidarbha Alloy Works", "contact_person": "Commercial Desk", "contact_email": "contracts@vidarbha-alloy.example", "contact_phone": "+91 70000 00001", "assigned_mine": "Balaghat"},
+    {"customer_id": "CUS-002", "customer_name": "Central Steel & Minerals", "contact_person": "Supply Planning", "contact_email": "planning@central-steel.example", "contact_phone": "+91 70000 00002", "assigned_mine": "Balaghat"},
+    {"customer_id": "CUS-003", "customer_name": "Deccan Ferro Metals", "contact_person": "Dispatch Control", "contact_email": "dispatch@deccan-ferro.example", "contact_phone": "+91 70000 00003", "assigned_mine": "Balaghat"},
+    {"customer_id": "CUS-004", "customer_name": "Nagpur Alloy Consortium", "contact_person": "Procurement Desk", "contact_email": "procurement@nagpur-alloy.example", "contact_phone": "+91 70000 00004", "assigned_mine": "Ukwa"},
+    {"customer_id": "CUS-005", "customer_name": "Eastern Ore Trading", "contact_person": "Commercial Planning", "contact_email": "planning@eastern-ore.example", "contact_phone": "+91 70000 00005", "assigned_mine": "Chikla"}
+  ],
+  "contracts": [
+    {"contract_id": "CON-001", "customer_name": "Vidarbha Alloy Works", "quantity_contracted_mt": 3000, "price_offered_per_mt": 47333, "delivery_deadline": "2026-09-14", "penalty_type": "INR_PER_MT", "penalty_value": 4200, "assigned_mine": "Balaghat", "status": "ACTIVE"},
+    {"contract_id": "CON-002", "customer_name": "Central Steel & Minerals", "quantity_contracted_mt": 2300, "price_offered_per_mt": 45200, "delivery_deadline": "2026-09-16", "penalty_type": "PERCENT_OF_SHORT_VALUE", "penalty_value": 8, "assigned_mine": "Balaghat", "status": "ACTIVE"},
+    {"contract_id": "CON-003", "customer_name": "Deccan Ferro Metals", "quantity_contracted_mt": 300, "price_offered_per_mt": 46800, "delivery_deadline": "2026-09-17", "penalty_type": "INR_PER_MT", "penalty_value": 2800, "assigned_mine": "Balaghat", "status": "ACTIVE"},
+    {"contract_id": "CON-004", "customer_name": "Nagpur Alloy Consortium", "quantity_contracted_mt": 500, "price_offered_per_mt": 43800, "delivery_deadline": "2026-09-22", "penalty_type": "PERCENT_OF_SHORT_VALUE", "penalty_value": 5, "assigned_mine": "Ukwa", "status": "ACTIVE"},
+    {"contract_id": "CON-005", "customer_name": "Eastern Ore Trading", "quantity_contracted_mt": 450, "price_offered_per_mt": 45100, "delivery_deadline": "2026-09-24", "penalty_type": "INR_PER_MT", "penalty_value": 2200, "assigned_mine": "Chikla", "status": "ACTIVE"}
+  ]
+}

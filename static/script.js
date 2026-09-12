@@ -8,6 +8,9 @@ const API_TIMEOUT_MS = 12000;
 
 let planExecuted = false;
 let lastExecutionResult = null;
+let lastCustomerContracts = [];
+let lastCustomers = [];
+let availableMines = [];
 
 const ACTION_LABELS = {
   REROUTE_FLEET: "Move dumpers to an alternate pit",
@@ -1181,8 +1184,500 @@ function renderPrediction(data) {
   document.getElementById("hero-output-val").textContent = fmtTons(predicted);
   document.getElementById("hero-target-val").textContent = fmtTons(target);
 
+  if (prediction.customer_portfolio) {
+    renderCustomerPortfolio(prediction.customer_portfolio);
+  }
+
   planExecuted = !!data.plan_executed;
   updateExecuteButtons();
+}
+
+// ---------------- CUSTOMER CONTRACT COMMAND ----------------
+function fmtInr(value, digits = 0) {
+  const n = Number(value);
+  return isFinite(n) ? `₹${fmtNum(n, digits)}` : "N/A";
+}
+
+function renderCustomerPortfolio(portfolio) {
+  if (!portfolio) return;
+  const scope = document.getElementById("customer-scope");
+  if (scope) scope.textContent = `${portfolio.assigned_mine || "Selected mine"} · forecast as of ${portfolio.as_of_date || "today"}`;
+
+  const summaryRows = document.getElementById("customer-summary-rows");
+  if (summaryRows) {
+    summaryRows.innerHTML = "";
+    const values = [
+      ["Contracted volume", fmtTons(portfolio.quantity_contracted_mt), ""],
+      ["Expected delivery", fmtTons(portfolio.expected_delivery_mt), "ok"],
+      ["Expected contract revenue", fmtInr(portfolio.expected_revenue_inr), "ok"],
+      ["Delivery shortfall", fmtTons(portfolio.shortfall_mt), Number(portfolio.shortfall_mt) > 0 ? "danger" : "ok"],
+      ["Delivery liability", fmtInr(portfolio.total_liability_inr), Number(portfolio.total_liability_inr) > 0 ? "danger" : "ok"],
+    ];
+    values.forEach(([label, value, tone]) => {
+      const row = document.createElement("tr");
+      const key = document.createElement("th");
+      key.scope = "row";
+      key.textContent = label;
+      const amount = document.createElement("td");
+      amount.className = tone;
+      amount.textContent = value;
+      row.appendChild(key);
+      row.appendChild(amount);
+      summaryRows.appendChild(row);
+    });
+  }
+  const method = document.getElementById("customer-method");
+  if (method && portfolio.method_note) method.textContent = portfolio.method_note;
+  renderDeadlineTimeline(
+    portfolio.contracts || [],
+    Number(portfolio.forecast_daily_output_mt) || 0,
+    portfolio.actual_output_regression || null,
+  );
+
+  const rows = document.getElementById("customer-contract-rows");
+  if (!rows) return;
+  rows.innerHTML = "";
+  const contracts = portfolio.contracts || [];
+  if (!contracts.length) {
+    const empty = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 8;
+    cell.textContent = "No active contracts are assigned to the selected mine.";
+    empty.appendChild(cell);
+    rows.appendChild(empty);
+    return;
+  }
+  contracts.forEach((contract) => {
+    const row = document.createElement("tr");
+    const details = [
+      `${contract.customer_name || "Customer"} · ${contract.contract_id || ""}`,
+      contract.assigned_mine || "—",
+      `${contract.delivery_deadline || "—"} (${Number(contract.days_to_deadline)}d)`,
+      fmtTons(contract.quantity_contracted_mt),
+      fmtTons(contract.expected_delivery_mt),
+      fmtTons(contract.shortfall_mt),
+      fmtInr((Number(contract.short_value_inr) || 0) + (Number(contract.penalty_liability_inr) || 0)),
+    ];
+    details.forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    const statusCell = document.createElement("td");
+    const status = document.createElement("span");
+    const statusText = String(contract.delivery_status || "ON_TRACK");
+    status.className = `contract-status ${statusText.toLowerCase().replace("_", "-")}`;
+    status.textContent = statusText.replace("_", " ");
+    statusCell.appendChild(status);
+    row.appendChild(statusCell);
+    rows.appendChild(row);
+  });
+}
+
+function renderDeadlineTimeline(contracts, dailyForecast, actualRegression) {
+  const timeline = document.getElementById("deadline-timeline");
+  if (!timeline) return;
+  timeline.innerHTML = "";
+  renderDeadlineForecastChart(contracts, dailyForecast, actualRegression);
+  if (!contracts.length) {
+    timeline.textContent = "No active contracts are assigned to the selected mine.";
+    return;
+  }
+  const track = document.createElement("div");
+  track.className = "deadline-track";
+  const now = document.createElement("div");
+  now.className = "deadline-now";
+  now.textContent = "TODAY";
+  timeline.appendChild(track);
+  timeline.appendChild(now);
+  const maxDays = Math.max(1, ...contracts.map((contract) => Math.max(0, Number(contract.days_to_deadline) || 0)));
+  contracts.forEach((contract, index) => {
+    const days = Number(contract.days_to_deadline) || 0;
+    const status = String(contract.delivery_status || "ON_TRACK").toLowerCase().replace("_", "-");
+    const marker = document.createElement("div");
+    marker.className = `deadline-marker ${status}`;
+    const position = Math.min(91, Math.max(11, 11 + (Math.max(0, days) / maxDays) * 80 + (index % 2) * 1.5));
+    marker.style.left = `${position}%`;
+    const card = document.createElement("div");
+    card.className = "deadline-marker-card";
+    const title = document.createElement("div");
+    title.className = "deadline-marker-title";
+    title.textContent = `${contract.customer_name} · ${contract.contract_id}`;
+    const meta = document.createElement("div");
+    meta.className = "deadline-marker-meta";
+    meta.textContent = `${contract.delivery_deadline} · ${days < 0 ? `${Math.abs(days)}d overdue` : `${days}d remaining`}`;
+    const state = document.createElement("div");
+    state.className = "deadline-marker-status";
+    state.textContent = `${String(contract.delivery_status || "ON_TRACK").replace("_", " ")} · ${fmtTons(contract.shortfall_mt)} short`;
+    card.appendChild(title);
+    card.appendChild(meta);
+    card.appendChild(state);
+    marker.appendChild(card);
+    timeline.appendChild(marker);
+  });
+}
+
+function renderDeadlineForecastChart(contracts, dailyForecast, actualRegression) {
+  const svg = document.getElementById("deadline-forecast-chart");
+  if (!svg) return;
+  svg.innerHTML = "";
+  const NS = "http://www.w3.org/2000/svg";
+  const make = (tag, attrs = {}, text = null) => {
+    const node = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+    if (text != null) node.textContent = text;
+    return node;
+  };
+  if (!contracts.length) {
+    svg.appendChild(make("text", { x: 280, y: 110, "text-anchor": "middle", fill: "#94A3B8", "font-size": 13 }, "No active contract deadlines to forecast."));
+    return;
+  }
+  const ordered = [...contracts].sort((a, b) => Number(a.days_to_deadline) - Number(b.days_to_deadline));
+  let committed = 0;
+  const points = ordered.map((contract) => {
+    committed += Number(contract.quantity_contracted_mt) || 0;
+    const x = Math.max(0, Number(contract.days_to_deadline) || 0);
+    return { x, committed, forecast: dailyForecast * (x + 1), contract };
+  });
+  const width = 560; const height = 220;
+  const margin = { top: 18, right: 22, bottom: 42, left: 58 };
+  const maxX = Math.max(1, ...points.map((point) => point.x));
+  const regressionCeiling = (() => {
+    if (!actualRegression) return 0;
+    const slope = Number(actualRegression.slope_mt_per_day) || 0;
+    const intercept = Number(actualRegression.intercept_mt) || 0;
+    const origin = Number(actualRegression.origin_index) || 0;
+    let total = 0;
+    for (let offset = 0; offset <= Math.floor(maxX); offset += 1) total += Math.max(0, slope * (origin + offset) + intercept);
+    return total;
+  })();
+  const maxY = Math.max(1, regressionCeiling, ...points.flatMap((point) => [point.committed, point.forecast])) * 1.12;
+  const sx = (value) => margin.left + (value / maxX) * (width - margin.left - margin.right);
+  const sy = (value) => height - margin.bottom - (value / maxY) * (height - margin.top - margin.bottom);
+
+  [0, .25, .5, .75, 1].forEach((fraction) => {
+    const value = maxY * fraction;
+    const y = sy(value);
+    svg.appendChild(make("line", { x1: margin.left, x2: width - margin.right, y1: y, y2: y, stroke: "#26334F", "stroke-width": 1 }));
+    svg.appendChild(make("text", { x: margin.left - 8, y: y + 4, "text-anchor": "end", fill: "#94A3B8", "font-size": 10 }, `${fmtNum(value / 1000, 1)}k`));
+  });
+  svg.appendChild(make("line", { x1: margin.left, x2: width - margin.right, y1: height - margin.bottom, y2: height - margin.bottom, stroke: "#64748B", "stroke-width": 1 }));
+  svg.appendChild(make("text", { x: margin.left, y: 12, fill: "#94A3B8", "font-size": 10 }, "CUMULATIVE TONNES (MT)"));
+  svg.appendChild(make("text", { x: width - margin.right, y: height - 10, "text-anchor": "end", fill: "#94A3B8", "font-size": 10 }, "DAYS UNTIL CONTRACT DEADLINE"));
+
+  const pathFor = (key) => points.map((point, index) => `${index ? "L" : "M"}${sx(point.x)},${sy(point[key])}`).join(" ");
+  svg.appendChild(make("path", { d: pathFor("committed"), fill: "none", stroke: "#FBBF24", "stroke-width": 3, "stroke-linejoin": "round" }));
+  svg.appendChild(make("path", { d: pathFor("forecast"), fill: "none", stroke: "#38BDF8", "stroke-width": 3, "stroke-linejoin": "round" }));
+
+  const regressionCumulative = (days) => {
+    if (!actualRegression) return 0;
+    const slope = Number(actualRegression.slope_mt_per_day) || 0;
+    const intercept = Number(actualRegression.intercept_mt) || 0;
+    const origin = Number(actualRegression.origin_index) || 0;
+    let total = 0;
+    for (let offset = 0; offset <= Math.floor(days); offset += 1) total += Math.max(0, slope * (origin + offset) + intercept);
+    return total;
+  };
+  if (actualRegression) {
+    const trendStart = regressionCumulative(0);
+    const trendEnd = regressionCumulative(maxX);
+    svg.appendChild(make("path", { d: `M${sx(0)},${sy(trendStart)} L${sx(maxX)},${sy(trendEnd)}`, fill: "none", stroke: "#34D399", "stroke-width": 2, "stroke-dasharray": "6 5" }));
+    svg.appendChild(make("text", { x: width - margin.right, y: 12, "text-anchor": "end", fill: "#34D399", "font-size": 10 }, `Actual ROM regression: y = ${Number(actualRegression.slope_mt_per_day).toFixed(2)}x + ${fmtNum(actualRegression.intercept_mt, 0)}`));
+  }
+
+  points.forEach((point) => {
+    svg.appendChild(make("circle", { cx: sx(point.x), cy: sy(point.committed), r: 4, fill: "#FBBF24", stroke: "#0B1220", "stroke-width": 2 }));
+    svg.appendChild(make("circle", { cx: sx(point.x), cy: sy(point.forecast), r: 4, fill: Number(point.contract.shortfall_mt) > 0 ? "#F87171" : "#38BDF8", stroke: "#0B1220", "stroke-width": 2 }));
+    svg.appendChild(make("text", { x: sx(point.x), y: height - margin.bottom + 18, "text-anchor": "middle", fill: "#CBD5E1", "font-size": 10 }, `${point.x}d`));
+  });
+  const guide = make("line", { y1: margin.top, y2: height - margin.bottom, stroke: "#CBD5E1", "stroke-width": 1, "stroke-dasharray": "3 3", visibility: "hidden" });
+  const tooltip = make("g", { visibility: "hidden" });
+  const tooltipBox = make("rect", { width: 195, height: 52, rx: 4, fill: "#101A2C", stroke: "#38BDF8" });
+  const tooltipTitle = make("text", { x: 8, y: 17, fill: "#F8FAFC", "font-size": 10, "font-weight": 800 });
+  const tooltipValue = make("text", { x: 8, y: 35, fill: "#A8B6CA", "font-size": 10 });
+  tooltip.appendChild(tooltipBox); tooltip.appendChild(tooltipTitle); tooltip.appendChild(tooltipValue);
+  const overlay = make("rect", { x: margin.left, y: margin.top, width: width - margin.left - margin.right, height: height - margin.top - margin.bottom, fill: "transparent", "pointer-events": "all" });
+  overlay.addEventListener("pointermove", (event) => {
+    const rect = svg.getBoundingClientRect();
+    const mouseX = ((event.clientX - rect.left) / rect.width) * width;
+    const point = points.reduce((closest, candidate) => Math.abs(sx(candidate.x) - mouseX) < Math.abs(sx(closest.x) - mouseX) ? candidate : closest, points[0]);
+    const x = sx(point.x); const y = Math.max(margin.top + 2, sy(Math.max(point.committed, point.forecast)) - 60);
+    guide.setAttribute("x1", x); guide.setAttribute("x2", x); guide.setAttribute("visibility", "visible");
+    tooltip.setAttribute("transform", `translate(${Math.min(width - 205, Math.max(margin.left, x - 90))} ${y})`); tooltip.setAttribute("visibility", "visible");
+    tooltipTitle.textContent = `${point.contract.customer_name} · ${point.x}d`;
+    tooltipValue.textContent = `Forecast ${fmtTons(point.forecast)} | Contract ${fmtTons(point.committed)}`;
+  });
+  overlay.addEventListener("pointerleave", () => { guide.setAttribute("visibility", "hidden"); tooltip.setAttribute("visibility", "hidden"); });
+  svg.appendChild(guide); svg.appendChild(tooltip); svg.appendChild(overlay);
+}
+
+// The delivery graph deliberately uses daily ROM rather than cumulative contract
+// volume: the yellow trace is the last observed production history, the blue
+// trace is the model's forecast from TODAY onwards, and green is y = mx + c.
+// This makes the regression line traceable to real production observations.
+function renderDeadlineForecastChart(contracts, dailyForecast, actualRegression) {
+  const svg = document.getElementById("deadline-forecast-chart");
+  if (!svg) return;
+  svg.innerHTML = "";
+  const NS = "http://www.w3.org/2000/svg";
+  const make = (tag, attrs = {}, text = null) => {
+    const node = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+    if (text !== null) node.textContent = text;
+    return node;
+  };
+  if (!contracts.length) {
+    svg.appendChild(make("text", { x: 280, y: 110, "text-anchor": "middle", fill: "#94A3B8", "font-size": 13 }, "No active contract deadlines to forecast."));
+    return;
+  }
+
+  const width = 560; const height = 220;
+  const margin = { top: 24, right: 22, bottom: 42, left: 58 };
+  const history = Array.isArray(actualRegression?.history) ? actualRegression.history : [];
+  const observed = history.map((row, index) => ({ x: index, y: Number(row.actual_rom_tonnes) || 0, date: row.date || "Observed day" }));
+  if (!observed.length && actualRegression) observed.push({ x: 0, y: Number(actualRegression.fitted_today_daily_mt) || 0, date: actualRegression.last_observed_date || "Today" });
+  const todayIndex = Math.max(0, observed.length - 1);
+  const maxDays = Math.max(1, ...contracts.map((contract) => Math.max(0, Number(contract.days_to_deadline) || 0)));
+  const maxX = todayIndex + maxDays;
+  const regressionValue = (index) => actualRegression
+    ? Math.max(0, (Number(actualRegression.slope_mt_per_day) || 0) * index + (Number(actualRegression.intercept_mt) || 0))
+    : Math.max(0, Number(dailyForecast) || 0);
+  // Preserve the ML prediction at TODAY, then project it along the slope of
+  // the fitted actual-production line. This avoids a misleading flat forecast
+  // while keeping the model's current production estimate as the anchor.
+  const forecastValue = (days) => Math.max(0, (Number(dailyForecast) || 0) + (regressionValue(todayIndex + days) - regressionValue(todayIndex)));
+  const forecast = Array.from({ length: maxDays + 1 }, (_, days) => ({ x: todayIndex + days, y: forecastValue(days), days }));
+  const regression = Array.from({ length: maxX + 1 }, (_, x) => ({ x, y: regressionValue(x) }));
+  const deadlines = contracts.map((contract) => ({
+    x: todayIndex + Math.max(0, Number(contract.days_to_deadline) || 0),
+    y: forecastValue(Math.max(0, Number(contract.days_to_deadline) || 0)),
+    contract,
+  }));
+  const maxY = Math.max(1, ...observed.map((point) => point.y), ...forecast.map((point) => point.y), ...regression.map((point) => point.y)) * 1.16;
+  const sx = (x) => margin.left + (x / Math.max(1, maxX)) * (width - margin.left - margin.right);
+  const sy = (y) => height - margin.bottom - (y / maxY) * (height - margin.top - margin.bottom);
+  const pathFor = (points) => points.map((point, index) => `${index ? "L" : "M"}${sx(point.x)},${sy(point.y)}`).join(" ");
+
+  [0, .25, .5, .75, 1].forEach((fraction) => {
+    const value = maxY * fraction; const y = sy(value);
+    svg.appendChild(make("line", { x1: margin.left, x2: width - margin.right, y1: y, y2: y, stroke: "#26334F", "stroke-width": 1 }));
+    svg.appendChild(make("text", { x: margin.left - 8, y: y + 4, "text-anchor": "end", fill: "#94A3B8", "font-size": 10 }, `${fmtNum(value / 1000, 1)}k`));
+  });
+  svg.appendChild(make("line", { x1: margin.left, x2: width - margin.right, y1: height - margin.bottom, y2: height - margin.bottom, stroke: "#64748B", "stroke-width": 1 }));
+  svg.appendChild(make("text", { x: margin.left, y: 13, fill: "#94A3B8", "font-size": 10 }, "DAILY ROM OUTPUT (MT)"));
+  svg.appendChild(make("text", { x: width - margin.right, y: height - 10, "text-anchor": "end", fill: "#94A3B8", "font-size": 10 }, "OBSERVED ACTUALS → FORECAST DAYS"));
+  if (observed.length > 1) svg.appendChild(make("path", { d: pathFor(observed), fill: "none", stroke: "#FBBF24", "stroke-width": 2.5, "stroke-linejoin": "round" }));
+  svg.appendChild(make("path", { d: pathFor(forecast), fill: "none", stroke: "#38BDF8", "stroke-width": 3, "stroke-linejoin": "round" }));
+  if (actualRegression) {
+    svg.appendChild(make("path", { d: pathFor(regression), fill: "none", stroke: "#34D399", "stroke-width": 2, "stroke-dasharray": "6 5" }));
+    svg.appendChild(make("text", { x: width - margin.right, y: 13, "text-anchor": "end", fill: "#34D399", "font-size": 10 }, `Trend: y = ${Number(actualRegression.slope_mt_per_day).toFixed(2)}x + ${fmtNum(actualRegression.intercept_mt, 0)}`));
+  }
+  observed.forEach((point) => svg.appendChild(make("circle", { cx: sx(point.x), cy: sy(point.y), r: 2.3, fill: "#FBBF24" })));
+  const todayX = sx(todayIndex);
+  svg.appendChild(make("line", { x1: todayX, x2: todayX, y1: margin.top, y2: height - margin.bottom, stroke: "#E2E8F0", "stroke-width": 1, "stroke-dasharray": "3 3" }));
+  svg.appendChild(make("text", { x: todayX, y: height - margin.bottom + 17, "text-anchor": "middle", fill: "#E2E8F0", "font-size": 10, "font-weight": 800 }, "TODAY"));
+  deadlines.forEach((point, index) => {
+    const atRisk = Number(point.contract.shortfall_mt) > 0;
+    svg.appendChild(make("circle", { cx: sx(point.x), cy: sy(point.y), r: 4.5, fill: atRisk ? "#F87171" : "#38BDF8", stroke: "#0B1220", "stroke-width": 2 }));
+    if (index === 0 || point.x !== deadlines[index - 1].x) svg.appendChild(make("text", { x: sx(point.x), y: height - margin.bottom + 31, "text-anchor": "middle", fill: atRisk ? "#FCA5A5" : "#7DD3FC", "font-size": 9 }, `${point.contract.days_to_deadline}d`));
+  });
+
+  const guide = make("line", { y1: margin.top, y2: height - margin.bottom, stroke: "#CBD5E1", "stroke-width": 1, "stroke-dasharray": "3 3", visibility: "hidden" });
+  const tooltip = make("g", { visibility: "hidden" });
+  const tooltipBox = make("rect", { width: 225, height: 66, rx: 4, fill: "#101A2C", stroke: "#38BDF8" });
+  const tooltipTitle = make("text", { x: 8, y: 17, fill: "#F8FAFC", "font-size": 10, "font-weight": 800 });
+  const tooltipValue = make("text", { x: 8, y: 35, fill: "#A8B6CA", "font-size": 10 });
+  const tooltipDetail = make("text", { x: 8, y: 51, fill: "#A8B6CA", "font-size": 10 });
+  tooltip.appendChild(tooltipBox); tooltip.appendChild(tooltipTitle); tooltip.appendChild(tooltipValue); tooltip.appendChild(tooltipDetail);
+  const overlay = make("rect", { x: margin.left, y: margin.top, width: width - margin.left - margin.right, height: height - margin.top - margin.bottom, fill: "transparent", "pointer-events": "all" });
+  const showTooltip = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const mouseX = ((event.clientX - rect.left) / rect.width) * width;
+    const xIndex = Math.max(0, Math.min(maxX, Math.round(((mouseX - margin.left) / (width - margin.left - margin.right)) * maxX)));
+    const x = sx(xIndex); const observedPoint = observed.find((point) => point.x === xIndex);
+    const deadlineAtPoint = deadlines.filter((point) => point.x === xIndex);
+    const output = observedPoint ? observedPoint.y : forecastValue(Math.max(0, xIndex - todayIndex));
+    guide.setAttribute("x1", x); guide.setAttribute("x2", x); guide.setAttribute("visibility", "visible");
+    tooltip.setAttribute("transform", `translate(${Math.min(width - 235, Math.max(margin.left, x - 106))} ${Math.max(margin.top + 2, sy(output) - 71)})`);
+    tooltip.setAttribute("visibility", "visible");
+    tooltipTitle.textContent = observedPoint ? `Actual · ${observedPoint.date}` : `Forecast · ${xIndex - todayIndex} day(s) after today`;
+    tooltipValue.textContent = `${observedPoint ? "Actual" : "Model forecast"}: ${fmtTons(output)} · Trend: ${fmtTons(regressionValue(xIndex))}`;
+    tooltipDetail.textContent = deadlineAtPoint.length ? deadlineAtPoint.map((point) => `${point.contract.contract_id}: ${fmtTons(point.contract.quantity_contracted_mt)}`).join(" · ") : "Hover a deadline marker for its commitment.";
+  };
+  overlay.addEventListener("pointermove", showTooltip);
+  overlay.addEventListener("mousemove", showTooltip);
+  overlay.addEventListener("pointerleave", () => { guide.setAttribute("visibility", "hidden"); tooltip.setAttribute("visibility", "hidden"); });
+  svg.appendChild(guide); svg.appendChild(tooltip); svg.appendChild(overlay);
+}
+
+function renderCustomerDirectory(customers) {
+  const rows = document.getElementById("customer-directory-rows");
+  if (!rows) return;
+  rows.innerHTML = "";
+  if (!customers.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.textContent = "No customers have been added.";
+    row.appendChild(cell);
+    rows.appendChild(row);
+    return;
+  }
+  customers.forEach((customer) => {
+    const row = document.createElement("tr");
+    [customer.customer_name, customer.assigned_mine || "—", customer.contact_person || "—", customer.contact_email || "—", customer.contact_phone || "—"].forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    rows.appendChild(row);
+  });
+}
+
+function populateContractCustomerSelect(customers) {
+  const select = document.getElementById("customer-contract-customer");
+  if (!select) return;
+  const selected = select.value;
+  select.innerHTML = "";
+  customers.forEach((customer) => {
+    const option = document.createElement("option");
+    option.value = customer.customer_name;
+    option.textContent = customer.customer_name;
+    select.appendChild(option);
+  });
+  if (selected) select.value = selected;
+}
+
+function populateMineSelects(mines) {
+  ["customer-assigned-mine", "customer-mine"].forEach((id) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const selected = select.value || "Balaghat";
+    select.innerHTML = "";
+    mines.forEach((mine) => {
+      const option = document.createElement("option");
+      option.value = mine;
+      option.textContent = mine;
+      select.appendChild(option);
+    });
+    select.value = selected;
+  });
+}
+
+async function loadCustomers() {
+  try {
+    const data = await apiFetch("/api/customers");
+    lastCustomerContracts = data.contracts || [];
+    lastCustomers = data.customers || [];
+    availableMines = data.available_mines || ["Balaghat"];
+    renderCustomerDirectory(lastCustomers);
+    populateContractCustomerSelect(lastCustomers);
+    populateMineSelects(availableMines);
+    renderCustomerPortfolio(data.portfolio);
+  } catch (err) {
+    setStatus(err.message || "Customer contracts could not be loaded.", "error");
+  }
+}
+
+async function addCustomer(event) {
+  event.preventDefault();
+  // currentTarget is cleared by the browser once an async event handler
+  // yields. Capture the form before awaiting the POST so the UI can reset,
+  // close and reload after a successful customer creation.
+  const form = event.currentTarget;
+  if (!form || !form.reportValidity()) return;
+  const submit = form.querySelector("button[type='submit']");
+  const payload = {
+    entity: "customer",
+    customer_name: document.getElementById("customer-name").value.trim(),
+    contact_person: document.getElementById("customer-contact-person").value.trim(),
+    contact_email: document.getElementById("customer-email").value.trim(),
+    contact_phone: document.getElementById("customer-phone").value.trim(),
+    assigned_mine: document.getElementById("customer-assigned-mine").value,
+  };
+  if (submit) submit.disabled = true;
+  try {
+    await apiFetch("/api/customers", { method: "POST", body: JSON.stringify(payload) });
+    form.reset();
+    document.getElementById("customer-modal").close();
+    setStatus("Customer added to this demo session.", "ok");
+    await loadCustomers();
+  } catch (err) {
+    setStatus(err.message || "Customer could not be added.", "error");
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+async function addCustomerContract(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!form || !form.reportValidity()) return;
+  const submit = form.querySelector("button[type='submit']");
+  const payload = {
+    entity: "contract",
+    customer_name: document.getElementById("customer-contract-customer").value,
+    quantity_contracted_mt: Number(document.getElementById("customer-quantity").value),
+    price_offered_per_mt: Number(document.getElementById("customer-price").value),
+    delivery_deadline: document.getElementById("customer-deadline").value,
+    penalty_type: document.getElementById("customer-penalty-type").value,
+    penalty_value: Number(document.getElementById("customer-penalty-value").value),
+    assigned_mine: document.getElementById("customer-mine").value.trim(),
+  };
+  if (submit) submit.disabled = true;
+  try {
+    await apiFetch("/api/customers", { method: "POST", body: JSON.stringify(payload) });
+    form.reset();
+    setDefaultCustomerDeadline();
+    document.getElementById("contract-modal").close();
+    setStatus("Customer contract added to this demo session.", "ok");
+    await refreshAll(true);
+    await loadCustomers();
+  } catch (err) {
+    setStatus(err.message || "Customer contract could not be added.", "error");
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+function setDefaultCustomerDeadline() {
+  const deadline = document.getElementById("customer-deadline");
+  if (!deadline || deadline.value) return;
+  const date = new Date();
+  date.setDate(date.getDate() + 7);
+  deadline.value = date.toISOString().slice(0, 10);
+}
+
+function switchCustomerTab(name) {
+  const portfolio = name === "portfolio";
+  document.getElementById("customer-portfolio-tab").hidden = !portfolio;
+  document.getElementById("customer-management-tab").hidden = portfolio;
+  document.querySelectorAll(".customer-tab").forEach((button) => {
+    const active = button.dataset.customerTab === name;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+}
+
+function bindCustomerCommand() {
+  document.querySelectorAll(".customer-tab").forEach((button) => button.addEventListener("click", () => switchCustomerTab(button.dataset.customerTab)));
+  document.getElementById("open-customer-modal")?.addEventListener("click", () => document.getElementById("customer-modal").showModal());
+  document.getElementById("open-contract-modal")?.addEventListener("click", () => {
+    if (!lastCustomers.length) {
+      setStatus("Add a customer before creating a contract.", "warn");
+      document.getElementById("customer-modal").showModal();
+      return;
+    }
+    setDefaultCustomerDeadline();
+    document.getElementById("contract-modal").showModal();
+  });
+  document.getElementById("customer-contract-customer")?.addEventListener("change", (event) => {
+    const selected = lastCustomers.find((customer) => customer.customer_name === event.target.value);
+    if (selected && selected.assigned_mine) document.getElementById("customer-mine").value = selected.assigned_mine;
+  });
+  document.querySelectorAll(".customer-modal .modal-close, .customer-modal [value='cancel']").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
+  document.getElementById("customer-form")?.addEventListener("submit", addCustomer);
+  document.getElementById("customer-contract-form")?.addEventListener("submit", addCustomerContract);
 }
 
 // Live feedback: toggling a recommendation checkbox feeds its MT recovery into
@@ -1706,9 +2201,11 @@ function bindControls() {
 
 // ---------------- INIT ----------------
 async function init() {
+  setDefaultCustomerDeadline();
   updateControlBadges(getControls());
   await Promise.allSettled([loadTelemetry(), loadSpectral()]);
   await Promise.allSettled([loadAOI(), loadZones(true)]);
+  await loadCustomers();
   await refreshAll();
 }
 
@@ -1719,6 +2216,7 @@ document.addEventListener("DOMContentLoaded", () => {
   updateClock();
   setInterval(updateClock, 1000);
   bindControls();
+  bindCustomerCommand();
   init();
   setInterval(loadTelemetry, 5000);
 });
