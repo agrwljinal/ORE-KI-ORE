@@ -153,8 +153,11 @@ CANDIDATE_ZONES = [
         # red status + low prospectivity + low similarity all agree.
         "linked_geology_record_id": "GEO-000015",
         # SYNTHETIC_DEMO chip config for the vegetation-masking demo mode.
+        # ZONE_A is flooded: the surface is mostly flooded/vegetated green
+        # with only a small exposed brown remnant, so the pixel view matches
+        # the red FLOODED story (more green, less brown).
         "demo_chip": {
-            "size": 20, "seed": 1101, "vegetation_fraction": 0.08, "water_fraction": 0.06,
+            "size": 20, "seed": 1101, "vegetation_fraction": 0.55, "water_fraction": 0.25,
             "exposed_reflectance": {"B04": 0.80, "B08": 0.72, "B11": 0.04, "B12": 0.03},
         },
     },
@@ -174,9 +177,12 @@ CANDIDATE_ZONES = [
         "operational_status": "Dry",
         "water_depth_m": 0.0,
         "pumps_active": 2,
-        # Mid-high spectral - LIKELY (solid green ring)
+        # High spectral - CONFIRMED (pulsing green ring). Dry exposed ore
+        # surface: the chip is dominated by brown exposed pixels with little
+        # vegetation, so the pixel view matches the green OPERATIONAL story
+        # (brown more, green less = mineable ground).
         "linked_geology_record_id": "GEO-000005",
-        "demo_chip": {"size": 20, "seed": 1102, "vegetation_fraction": 0.26, "water_fraction": 0.05},
+        "demo_chip": {"size": 20, "seed": 1102, "vegetation_fraction": 0.15, "water_fraction": 0.05},
     },
     {
         "zone_id": "ZONE_C",
@@ -194,12 +200,12 @@ CANDIDATE_ZONES = [
         "operational_status": "Anomaly",
         "water_depth_m": 0.8,
         "pumps_active": 1,
-        # Mid spectral - WEAK match (amber dashed ring)
+        # High spectral - CONFIRMED (pulsing green ring). Balanced chip sits
+        # between the flooded red zone (green-dominant) and the operational
+        # green zones (brown-dominant): about half green, half brown, with
+        # enough exposed surface to yield a real, zone-specific score.
         "linked_geology_record_id": "GEO-000055",
-        # Mid spectral - WEAK match (amber dashed ring). Still heavily
-        # vegetated, but the demo chip keeps enough exposed surface to yield a
-        # real, zone-specific spectral score just like every other zone.
-        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.70, "water_fraction": 0.02},
+        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.45, "water_fraction": 0.10},
     },
     {
         "zone_id": "ZONE_D",
@@ -217,9 +223,10 @@ CANDIDATE_ZONES = [
         "operational_status": "Active",
         "water_depth_m": 0.0,
         "pumps_active": 0,
-        # Lowest spectral - MISMATCH (red dashed ring)
-        # Story: spatial model was wrong here; spectral saves us a wasted field crew
+        # High spectral - CONFIRMED (pulsing green ring). Dry exposed ore
+        # surface like ZONE_B: the chip is dominated by brown exposed pixels,
+        # matching the green OPERATIONAL story (brown more, green less).
         "linked_geology_record_id": "GEO-000026",
-        "demo_chip": {"size": 20, "seed": 1104, "vegetation_fraction": 0.40, "water_fraction": 0.05},
+        "demo_chip": {"size": 20, "seed": 1104, "vegetation_fraction": 0.15, "water_fraction": 0.05},
     },
 ]
