@@ -133,9 +133,12 @@ CANDIDATE_ZONES = [
         "name": "Zone A (North Deep)",
         "latitude": 21.8455,
         "longitude": 80.2260,
-        "spatial_score": 91.0,
+        # Flooded North Deep - spatial screening rates this the LOWEST
+        # prospectivity. The red FLOODED pin is also the lowest spatial score,
+        # so pin colour and prospectivity agree in direction.
+        "spatial_score": 31.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "High-prospectivity candidate",
+        "zone_type": "Low-prospectivity candidate",
         # Canonical machine status (single source of truth for map/cards/spatial
         # legend colours). 'operational_status' stays as the legacy human label.
         "status": "FLOODED",
@@ -154,9 +157,11 @@ CANDIDATE_ZONES = [
         "name": "Zone B (South Ridge)",
         "latitude": 21.8300,
         "longitude": 80.2280,
-        "spatial_score": 68.0,
+        # Operational South Ridge - highest spatial prospectivity; the green
+        # OPERATIONAL pin is also the top spatial score.
+        "spatial_score": 91.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "Medium-prospectivity candidate",
+        "zone_type": "High-prospectivity candidate",
         "status": "OPERATIONAL",
         "production_impact": "LOW",
         "recommended_action": "Continue operations",
@@ -172,9 +177,11 @@ CANDIDATE_ZONES = [
         "name": "Zone C (East Extension)",
         "latitude": 21.8400,
         "longitude": 80.2345,
-        "spatial_score": 31.0,
+        # Anomaly zone under review - medium prospectivity, between the flooded
+        # LOW and the operational HIGH zones.
+        "spatial_score": 68.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "Low-prospectivity candidate",
+        "zone_type": "Medium-prospectivity candidate",
         "status": "SPECTRAL ANOMALY",
         "production_impact": "REVIEW",
         "recommended_action": "Inspect zone",
@@ -193,9 +200,11 @@ CANDIDATE_ZONES = [
         "name": "Zone D (Western Bench)",
         "latitude": 21.8435,
         "longitude": 80.2205,
-        "spatial_score": 74.0,
+        # Operational Western Bench - high prospectivity, alongside Zone B as
+        # one of the two green OPERATIONAL zones with the highest spatial scores.
+        "spatial_score": 82.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "Medium-prospectivity candidate",
+        "zone_type": "High-prospectivity candidate",
         "status": "OPERATIONAL",
         "production_impact": "LOW",
         "recommended_action": "Continue operations",
