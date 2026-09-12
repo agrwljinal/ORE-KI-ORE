@@ -2,6 +2,7 @@ import os
 import time
 import datetime
 import math
+import csv
 from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -222,6 +223,14 @@ except ImportError:
             "Spectral Variance": 2.0,
         }
 
+try:
+    from modules.customers import CustomerContractStore, calculate_customer_portfolio
+    CUSTOMER_ENGINE_AVAILABLE = True
+except ImportError:
+    CustomerContractStore = None
+    calculate_customer_portfolio = None
+    CUSTOMER_ENGINE_AVAILABLE = False
+
 
 # ---------------------------------------------------------
 # GLOBAL IN-MEMORY RUNTIME STATE
@@ -236,10 +245,36 @@ SYSTEM_STATE = {
     "target_tonnage": C.BASE_WEEKLY_TARGET_TONS,
     "ore_grade": "STD",
     "selected_site": "Balaghat Sector 4",
-    "mine_name": None,
+    "mine_name": "Balaghat",
     "selected_actions": None,
     "last_updated": datetime.datetime.now(datetime.timezone.utc).isoformat()
 }
+
+# Customer contracts are intentionally in memory for this demo, just like the
+# existing simulation state.  The seed file supplies a transparent, editable
+# commercial scenario; a production deployment should use an authenticated
+# contract-management system instead.
+customer_store = CustomerContractStore() if CUSTOMER_ENGINE_AVAILABLE else None
+
+
+def _customer_mine_options():
+    """Expose the same mine names used by the spatial map's portfolio data."""
+    path = os.path.join(os.path.dirname(__file__), "data", "mine_dashboard_summary.csv")
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as handle:
+            return sorted({str(row.get("mine_name") or "").strip() for row in csv.DictReader(handle) if row.get("mine_name")})
+    except OSError:
+        return ["Balaghat"]
+
+
+def _customer_portfolio(predicted_tonnage):
+    if not customer_store or calculate_customer_portfolio is None:
+        return None
+    return calculate_customer_portfolio(
+        customer_store.list(),
+        predicted_daily_tonnage=predicted_tonnage,
+        assigned_mine=SYSTEM_STATE.get("mine_name") or "Balaghat",
+    )
 
 
 # ---------------------------------------------------------
@@ -265,7 +300,25 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
         plan_executed=plan_applied,
         mitigation_counts=1 if plan_applied else 0,
     )
-    rupee_loss = round(shortfall * float(C.MN_COST_PER_TON_INR), 2)
+    customer_portfolio = _customer_portfolio(predicted)
+    # Customer contracts are now the commercial source of truth.  When a
+    # contract portfolio exists, the hero ledger reports forecast delivery
+    # liability: short-delivery contract value + the agreed penalty clause.
+    if customer_portfolio and customer_portfolio["active_contract_count"]:
+        state = dict(state)
+        liability = float(customer_portfolio["total_liability_inr"])
+        state.update({
+            "ledger_label": "Contract Delivery Liability",
+            "ledger_amount_inr": round(liability, 2),
+            "ledger_crores": round(liability / 1e7, 4),
+            "ledger_class": "text-red" if liability > 0 else "text-green",
+        })
+    rupee_loss = round(
+        float(customer_portfolio["total_liability_inr"])
+        if customer_portfolio and customer_portfolio["active_contract_count"]
+        else shortfall * float(C.MN_COST_PER_TON_INR),
+        2,
+    )
     return {
         "base_target": round(base_target, 2),
         "predicted_tonnage": round(predicted, 2),
@@ -291,6 +344,7 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
         "ledger_amount_inr": state["ledger_amount_inr"],
         "ledger_crores": state["ledger_crores"],
         "ledger_class": state["ledger_class"],
+        "customer_portfolio": customer_portfolio,
         "plan_applied": plan_applied,
     }
 
@@ -476,6 +530,9 @@ def _build_prescriptive_response(raw_pred, recs, plan_result=None):
         recovered = round(min(float(execution.get("total_expected_recovery_tonnes") or 0.0), shortfall), 2)
         remaining = round(max(0.0, shortfall - recovered), 2)
         total_rec_gain = recovered
+    base_output = float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0)
+    customer_before = _customer_portfolio(base_output)
+    customer_after = _customer_portfolio(base_output + recovered)
     # Single derived-state rule for the prescriptive panel too (item 4/5).
     state = derive_banner_state(
         float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0),
@@ -501,6 +558,19 @@ def _build_prescriptive_response(raw_pred, recs, plan_result=None):
         "ledger_amount_inr": state["ledger_amount_inr"],
         "ledger_crores": state["ledger_crores"],
         "ledger_class": state["ledger_class"],
+        "customer_portfolio": customer_after,
+        "customer_impact": {
+            "liability_avoided_inr": round(
+                max(0.0, float((customer_before or {}).get("total_liability_inr") or 0.0)
+                    - float((customer_after or {}).get("total_liability_inr") or 0.0)),
+                2,
+            ),
+            "additional_expected_revenue_inr": round(
+                max(0.0, float((customer_after or {}).get("expected_revenue_inr") or 0.0)
+                    - float((customer_before or {}).get("expected_revenue_inr") or 0.0)),
+                2,
+            ),
+        },
     }
     if execution:
         response["execution"] = execution
@@ -732,6 +802,53 @@ def handle_prescriptive():
         payload = _build_prescriptive_response(raw_pred, recs, plan_result)
 
     return jsonify(payload)
+
+
+@app.route("/api/customers", methods=["GET", "POST"])
+def handle_customers():
+    """Read or add customer contracts for the current demo session.
+
+    Contract terms are deliberately the source for the customer-liability
+    ledger.  POST additions are runtime-only, matching SYSTEM_STATE.
+    """
+    if not customer_store:
+        return jsonify({"status": "error", "message": "Customer contract engine unavailable."}), 503
+
+    if request.method == "POST":
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"status": "error", "message": "A customer contract JSON object is required."}), 400
+        try:
+            entity = str(payload.get("entity") or "contract").lower()
+            if entity == "customer":
+                added = customer_store.add_customer(payload)
+                created_kind = "customer"
+            elif entity == "contract":
+                added = customer_store.add(payload)
+                created_kind = "contract"
+            else:
+                raise ValueError("entity must be customer or contract.")
+        except ValueError as exc:
+            return jsonify({"status": "error", "message": str(exc)}), 400
+        status_code = 201
+    else:
+        added = None
+        status_code = 200
+
+    raw_pred = _make_prediction()
+    predicted = float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0)
+    portfolio = _customer_portfolio(predicted)
+    response = {
+        "status": "success",
+        "contracts": [contract.to_dict() for contract in customer_store.list()],
+        "customers": customer_store.list_customers(),
+        "available_mines": _customer_mine_options(),
+        "portfolio": portfolio,
+        "persistence_note": "Demo contracts added here remain available until the Flask server restarts.",
+    }
+    if added:
+        response[f"created_{created_kind}"] = added.to_dict() if hasattr(added, "to_dict") else added
+    return jsonify(response), status_code
 
 
 @app.route("/api/spectral", methods=["GET"])
@@ -1165,4 +1282,9 @@ def get_weather():
     })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=5001,
+        debug=True,
+        use_reloader=False
+    )

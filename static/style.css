@@ -2146,3 +2146,90 @@ body.map-expanded-open { overflow: hidden; }
   margin-top: 6px;
 }
 .spec-scope-note strong { color: #FBBF24; }
+
+/* ---- CUSTOMER CONTRACT COMMAND ---- */
+.customer-card { margin-top: 18px; }
+.customer-scope { color: #38BDF8; font-size: 10px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase; }
+.customer-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 10px; }
+.customer-kpi { background: #060B14; border: 1px solid #1E293B; border-radius: 5px; padding: 11px 12px; }
+.customer-kpi-label { color: #64748B; font-size: 9px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase; }
+.customer-kpi-value { color: #E2E8F0; font-size: 19px; font-weight: 800; margin-top: 4px; }
+.customer-kpi-value.danger { color: #F87171; }
+.customer-kpi-value.ok { color: #34D399; }
+.customer-method, .customer-note { color: #94A3B8; font-size: 11px; line-height: 1.5; margin: 8px 0 12px; }
+.customer-note { color: #64748B; margin-top: 10px; margin-bottom: 0; }
+.customer-table-wrap { overflow-x: auto; border: 1px solid #1E293B; border-radius: 5px; }
+.customer-table { width: 100%; border-collapse: collapse; min-width: 850px; font-size: 11px; }
+.customer-table th { background: #0B1220; color: #64748B; font-size: 9px; letter-spacing: 0.6px; text-align: left; text-transform: uppercase; }
+.customer-table th, .customer-table td { border-bottom: 1px solid #1E293B; padding: 9px 10px; }
+.customer-table td { color: #CBD5E1; }
+.customer-table tr:last-child td { border-bottom: 0; }
+.contract-status { font-size: 9px; font-weight: 900; letter-spacing: 0.5px; }
+.contract-status.at-risk { color: #F87171; }
+.contract-status.on-track { color: #34D399; }
+.contract-status.overdue { color: #FBBF24; }
+.customer-form { display: grid; grid-template-columns: 1.4fr repeat(3, minmax(105px, 1fr)) 1.35fr minmax(105px, 1fr) 1fr auto; gap: 8px; align-items: center; margin-top: 12px; }
+.customer-form .industrial-input, .customer-form .industrial-select { min-width: 0; width: 100%; }
+@media (max-width: 980px) {
+  .customer-kpis { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+  .customer-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .customer-kpis, .customer-form { grid-template-columns: 1fr; }
+}
+
+/* Customer command refinement: structured commercial summary, deadline rail and dialogs. */
+.customer-tabs { display: flex; gap: 4px; border-bottom: 1px solid #1E293B; margin: 12px 0 16px; }
+.customer-tab { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #94A3B8; cursor: pointer; font: inherit; font-size: 11px; font-weight: 800; letter-spacing: .45px; padding: 10px 14px; text-transform: uppercase; }
+.customer-tab:hover, .customer-tab.is-active { border-bottom-color: #38BDF8; color: #E2E8F0; }
+.customer-summary-wrap { border: 1px solid #1E293B; border-radius: 5px; overflow: hidden; }
+.customer-summary-table { border-collapse: collapse; width: 100%; }
+.customer-summary-table th, .customer-summary-table td { border-bottom: 1px solid #1E293B; padding: 10px 14px; text-align: left; }
+.customer-summary-table tr:last-child th, .customer-summary-table tr:last-child td { border-bottom: 0; }
+.customer-summary-table th { color: #94A3B8; font-size: 11px; font-weight: 600; width: 30%; }
+.customer-summary-table td { color: #F1F5F9; font-size: 16px; font-weight: 800; }
+.customer-summary-table td.danger { color: #F87171; }
+.customer-summary-table td.ok { color: #34D399; }
+.deadline-timeline-section { margin: 18px 0; }
+.deadline-timeline-heading, .customer-management-actions { align-items: flex-end; display: flex; gap: 14px; justify-content: space-between; }
+.deadline-timeline-heading h3, .customer-management-actions h3 { color: #E2E8F0; font-size: 15px; margin: 2px 0 0; }
+.timeline-kicker { color: #38BDF8; font-size: 9px; font-weight: 800; letter-spacing: .8px; text-transform: uppercase; }
+.timeline-legend { color: #94A3B8; display: flex; flex-wrap: wrap; font-size: 10px; gap: 7px; align-items: center; }
+.legend-now, .legend-risk, .legend-ok { border-radius: 50%; display: inline-block; height: 7px; margin-left: 4px; width: 7px; }
+.legend-now { background: #38BDF8; }.legend-risk { background: #F87171; }.legend-ok { background: #34D399; }
+.deadline-timeline { background: #060B14; border: 1px solid #1E293B; border-radius: 5px; margin-top: 10px; min-height: 126px; overflow: hidden; padding: 24px 18px 14px; position: relative; }
+.deadline-track { background: #334155; height: 2px; left: 30px; position: absolute; right: 30px; top: 54px; }
+.deadline-now { color: #38BDF8; font-size: 9px; font-weight: 800; left: 18px; position: absolute; top: 10px; }
+.deadline-marker { display: flex; flex-direction: column; min-width: 130px; position: absolute; top: 38px; transform: translateX(-50%); }
+.deadline-marker::before { background: #F87171; border: 3px solid #060B14; border-radius: 50%; content: ""; height: 11px; left: 50%; position: absolute; top: 9px; transform: translateX(-50%); width: 11px; z-index: 1; }
+.deadline-marker.on-track::before { background: #34D399; }.deadline-marker.overdue::before { background: #FBBF24; }
+.deadline-marker-card { background: #101A2C; border: 1px solid #26334F; border-radius: 4px; margin-top: 30px; padding: 7px 8px; }
+.deadline-marker-title { color: #E2E8F0; font-size: 10px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deadline-marker-meta { color: #94A3B8; font-size: 9px; margin-top: 2px; }
+.deadline-marker-status { color: #F87171; font-size: 9px; font-weight: 800; margin-top: 4px; text-transform: uppercase; }.on-track .deadline-marker-status { color: #34D399; }.overdue .deadline-marker-status { color: #FBBF24; }
+.customer-management-actions { background: #0B1220; border: 1px solid #1E293B; border-radius: 5px; padding: 14px; }.customer-management-actions p { color: #94A3B8; font-size: 11px; margin: 5px 0 0; }.customer-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.customer-directory-wrap { margin-top: 12px; }
+.customer-modal { background: #0B1220; border: 1px solid #334155; border-radius: 7px; color: #E2E8F0; max-width: 620px; padding: 0; width: calc(100% - 32px); }.customer-modal::backdrop { background: rgba(2, 6, 23, .78); }
+.customer-modal-shell { padding: 20px; }.customer-modal-head { align-items: flex-start; border-bottom: 1px solid #1E293B; display: flex; justify-content: space-between; margin-bottom: 16px; padding-bottom: 13px; }.customer-modal-head h2 { font-size: 19px; margin: 4px 0 0; }.modal-close { background: transparent; border: 0; color: #94A3B8; cursor: pointer; font-size: 24px; line-height: 1; }
+.customer-modal-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }.customer-modal-grid label { color: #94A3B8; display: grid; font-size: 10px; font-weight: 800; gap: 6px; letter-spacing: .4px; text-transform: uppercase; }.customer-modal-grid .industrial-input, .customer-modal-grid .industrial-select { box-sizing: border-box; width: 100%; }.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+@media (max-width: 680px) { .deadline-timeline-heading, .customer-management-actions { align-items: flex-start; flex-direction: column; }.deadline-timeline { display: grid; gap: 8px; min-height: 0; padding: 12px; }.deadline-track, .deadline-now { display: none; }.deadline-marker { display: block; position: relative; top: auto !important; transform: none !important; }.deadline-marker::before { display: none; }.deadline-marker-card { margin: 0; }.customer-modal-grid { grid-template-columns: 1fr; } }
+
+/* Final scoped visual system: keep customer UI independent of legacy styles. */
+.customer-card .customer-tabs { align-items: center; border-bottom: 1px solid #26334F; display: flex; gap: 8px; margin: 0 0 18px; padding-bottom: 0; }
+.customer-card .customer-tab { appearance: none; background: #101A2C; border: 1px solid #26334F; border-bottom: 0; border-radius: 6px 6px 0 0; color: #94A3B8; cursor: pointer; font-family: inherit; font-size: 10px; font-weight: 800; letter-spacing: .65px; margin: 0; padding: 10px 14px; text-transform: uppercase; }
+.customer-card .customer-tab:hover { border-color: #38BDF8; color: #E2E8F0; }.customer-card .customer-tab.is-active { background: #0E2234; border-color: #38BDF8; box-shadow: inset 0 2px 0 #38BDF8; color: #E2E8F0; }
+.customer-portfolio-grid { align-items: stretch; display: grid; gap: 16px; grid-template-columns: minmax(260px, .75fr) minmax(420px, 1.25fr); }
+.customer-card .customer-summary-wrap, .customer-card .deadline-timeline-section { background: #0A1322; border: 1px solid #26334F; border-radius: 6px; min-width: 0; overflow: hidden; padding: 14px; }
+.customer-section-heading { margin-bottom: 10px; }.customer-section-heading h3 { color: #E2E8F0; font-size: 15px; margin: 3px 0 0; }
+.customer-card .customer-summary-table { border: 1px solid #26334F; border-collapse: collapse; table-layout: fixed; width: 100%; }.customer-card .customer-summary-table th, .customer-card .customer-summary-table td { border: 1px solid #26334F; padding: 11px 12px; text-align: left; }.customer-card .customer-summary-table th { background: #101A2C; color: #A8B6CA; font-size: 11px; font-weight: 700; width: 58%; }.customer-card .customer-summary-table td { background: #0B1220; color: #F8FAFC; font-size: 15px; font-variant-numeric: tabular-nums; font-weight: 800; }.customer-card .customer-summary-table td.ok { color: #34D399; }.customer-card .customer-summary-table td.danger { color: #F87171; }
+.customer-card .deadline-timeline-section { margin: 0; }.customer-card .deadline-timeline-heading { align-items: flex-start; margin-bottom: 10px; }.customer-card .deadline-timeline-heading h3 { color: #E2E8F0; font-size: 15px; margin: 3px 0 0; }.customer-card .timeline-legend { justify-content: flex-end; max-width: 270px; }.legend-blue { background: #38BDF8; border-radius: 50%; display: inline-block; height: 7px; width: 7px; }.legend-yellow { background: #FBBF24; border-radius: 50%; display: inline-block; height: 7px; width: 7px; }.legend-green { background: #34D399; border-radius: 50%; display: inline-block; height: 7px; width: 7px; }
+.deadline-chart-wrap { background: #060B14; border: 1px solid #26334F; border-radius: 4px; min-height: 190px; padding: 4px; }.deadline-chart-wrap svg { display: block; height: 210px; overflow: visible; width: 100%; }
+.customer-card .deadline-timeline { background: #060B14; border: 1px solid #26334F; box-sizing: border-box; min-height: 188px; overflow: visible; padding: 54px 18px 14px; }.customer-card .deadline-track { background: linear-gradient(90deg, #38BDF8, #FBBF24, #F87171); }.customer-card .deadline-now { background: #0E7490; border: 1px solid #38BDF8; border-radius: 3px; color: #ECFEFF; left: 14px; line-height: 1; padding: 5px 8px; position: absolute; top: 12px; z-index: 6; }.customer-card .deadline-marker { top: 52px; }.customer-card .deadline-marker-card { border-color: #334155; box-shadow: 0 5px 14px rgba(0,0,0,.2); }.customer-card .deadline-marker.at-risk .deadline-marker-card { border-color: #7F1D1D; }.customer-card .deadline-marker.on-track .deadline-marker-card { border-color: #166534; }.deadline-chart-wrap svg { cursor: crosshair; touch-action: none; }
+.customer-card .customer-table-wrap { border: 1px solid #334155; border-radius: 6px; margin-top: 16px; }.customer-card .customer-table { border-collapse: collapse; width: 100%; }.customer-card .customer-table th, .customer-card .customer-table td { border: 1px solid #334155; padding: 11px 10px; vertical-align: middle; }.customer-card .customer-table th { background: #101A2C; color: #A8B6CA; font-size: 9px; }.customer-card .customer-table td { background: #0B1220; color: #E2E8F0; font-size: 11px; }.customer-card .customer-table tr:nth-child(even) td { background: #0E1727; }.customer-card .customer-table tr:hover td { background: #11243A; }.customer-card .contract-status { display: inline-block; letter-spacing: .65px; }.customer-card .customer-method { background: #152235; border: 1px solid #3B4B63; border-left: 3px solid #38BDF8; border-radius: 5px; color: #B6C4D8; margin: 14px 0 0; padding: 10px 12px; }
+.customer-card .customer-management-actions { background: #0A1322; border-color: #26334F; padding: 18px; }.customer-card .customer-action-buttons { align-items: center; }.customer-card .btn { border-radius: 4px; font-size: 10px; letter-spacing: .6px; padding: 10px 13px; }.customer-card .btn-secondary { border-color: #EAB308; color: #FDE68A; }.customer-card .btn-primary { background: #0EA5E9; border-color: #38BDF8; }
+.customer-modal { background: #0B1220 !important; border: 1px solid #38BDF8 !important; border-radius: 10px !important; box-shadow: 0 28px 80px rgba(0,0,0,.65), 0 0 0 1px rgba(56,189,248,.15) !important; color: #E2E8F0 !important; inset: 0 !important; margin: auto !important; max-height: min(680px, calc(100vh - 32px)) !important; max-width: 680px !important; overflow: auto !important; padding: 0 !important; position: fixed !important; width: min(680px, calc(100vw - 32px)) !important; }
+.customer-modal[open] { animation: customer-modal-enter 230ms cubic-bezier(.16, 1, .3, 1) both; }.customer-modal::backdrop { animation: customer-backdrop-enter 190ms ease-out both; background: rgba(2, 8, 23, .78) !important; backdrop-filter: blur(3px); }
+@keyframes customer-modal-enter { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes customer-backdrop-enter { from { opacity: 0; } to { opacity: 1; } }
+.customer-modal .customer-modal-shell { background: linear-gradient(135deg, #0D1B2F 0%, #0B1220 68%); padding: 24px; }.customer-modal .customer-modal-head { border-bottom-color: #26334F; }.customer-modal .customer-modal-head h2 { color: #F8FAFC; font-size: 22px; }.customer-modal .modal-close { align-items: center; background: #18273C; border: 1px solid #3B4B63; border-radius: 4px; color: #F8FAFC; display: inline-flex; height: 30px; justify-content: center; width: 30px; }.customer-modal .modal-close:hover { border-color: #F87171; color: #F87171; }.customer-modal .customer-modal-grid { gap: 16px; }.customer-modal .customer-modal-grid label { color: #A8B6CA; font-size: 10px; }.customer-modal .industrial-input, .customer-modal .industrial-select { background: #060B14 !important; border: 1px solid #334155 !important; border-radius: 4px !important; color: #F8FAFC !important; min-height: 39px; padding: 8px 10px !important; }.customer-modal .industrial-input:focus, .customer-modal .industrial-select:focus { border-color: #38BDF8 !important; box-shadow: 0 0 0 2px rgba(56,189,248,.16); outline: 0; }.customer-modal .modal-actions { border-top: 1px solid #26334F; margin-top: 22px; padding-top: 16px; }.customer-modal .btn { border-radius: 4px; font-size: 10px; letter-spacing: .6px; padding: 10px 14px; }.customer-modal .btn-secondary { border-color: #EAB308; color: #FDE68A; }.customer-modal .btn-primary { background: #16A34A; border-color: #4ADE80; }
+@media (max-width: 940px) { .customer-portfolio-grid { grid-template-columns: 1fr; }.customer-card .timeline-legend { justify-content: flex-start; max-width: none; } }
+@media (max-width: 640px) { .customer-card .customer-tabs { gap: 3px; }.customer-card .customer-tab { font-size: 8px; padding: 9px 8px; }.customer-card .customer-summary-table th { width: 54%; }.customer-card .customer-summary-table td { font-size: 13px; }.customer-modal .customer-modal-shell { padding: 18px; } }

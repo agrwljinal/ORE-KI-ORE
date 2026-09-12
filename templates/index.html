@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912u">
+    <link rel="stylesheet" href="/static/style.css?v=20260912v">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -402,9 +402,78 @@
 
             </div>
         </main>
+
+        <section class="industrial-card customer-card" aria-labelledby="customer-heading">
+            <div class="card-header-bar">
+                <div class="card-header-title" id="customer-heading"><span>🤝</span> Customer Contract Command</div>
+                <span class="customer-scope" id="customer-scope">Loading contract exposure…</span>
+            </div>
+            <div class="customer-tabs" role="tablist" aria-label="Customer command views">
+                <button class="customer-tab is-active" role="tab" aria-selected="true" aria-controls="customer-portfolio-tab" id="customer-portfolio-button" data-customer-tab="portfolio">Delivery portfolio</button>
+                <button class="customer-tab" role="tab" aria-selected="false" aria-controls="customer-management-tab" id="customer-management-button" data-customer-tab="management">Customer &amp; contract management</button>
+            </div>
+
+            <div id="customer-portfolio-tab" role="tabpanel" aria-labelledby="customer-portfolio-button" class="customer-tab-panel">
+                <div class="customer-portfolio-grid">
+                    <section class="customer-summary-wrap" aria-labelledby="portfolio-summary-heading">
+                        <div class="customer-section-heading"><div class="timeline-kicker">Commercial position</div><h3 id="portfolio-summary-heading">Delivery portfolio</h3></div>
+                        <table class="customer-summary-table" aria-label="Customer delivery portfolio summary">
+                            <tbody id="customer-summary-rows">
+                                <tr><td>Loading commercial exposure…</td></tr>
+                            </tbody>
+                        </table>
+                    </section>
+                    <section class="deadline-timeline-section" aria-labelledby="deadline-timeline-heading">
+                        <div class="deadline-timeline-heading">
+                            <div>
+                                <div class="timeline-kicker">Delivery schedule</div>
+                                <h3 id="deadline-timeline-heading">Approaching contract deadlines</h3>
+                            </div>
+                            <div class="timeline-legend"><span class="legend-yellow"></span>Actual <span class="legend-blue"></span>Forecast <span class="legend-green"></span>Regression <span class="legend-risk"></span>At risk</div>
+                        </div>
+                        <div class="deadline-chart-wrap"><svg id="deadline-forecast-chart" viewBox="0 0 560 220" role="img" aria-label="Contract delivery forecast, commitments, and regression trend"></svg></div>
+                        <div class="deadline-timeline" id="deadline-timeline" aria-live="polite"></div>
+                    </section>
+                </div>
+                <div class="customer-table-wrap">
+                    <table class="customer-table">
+                        <thead>
+                            <tr>
+                                <th>Customer / contract</th>
+                                <th>Mine</th>
+                                <th>Deadline</th>
+                                <th>Contracted</th>
+                                <th>Expected</th>
+                                <th>Short</th>
+                                <th>Liability</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="customer-contract-rows">
+                            <tr><td colspan="8">Loading customer contracts…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="customer-method" id="customer-method">Contract terms turn the production forecast into delivery exposure, including each customer's short-delivery penalty.</p>
+            </div>
+
+            <div id="customer-management-tab" role="tabpanel" aria-labelledby="customer-management-button" class="customer-tab-panel" hidden>
+                <div class="customer-management-actions">
+                    <div><span class="timeline-kicker">Customer directory</span><h3>Maintain customers and contracts</h3><p>Add a customer first, then create their commercial commitment.</p></div>
+                    <div class="customer-action-buttons"><button class="btn btn-secondary" type="button" id="open-customer-modal">ADD CUSTOMER</button><button class="btn btn-primary" type="button" id="open-contract-modal">ADD CONTRACT</button></div>
+                </div>
+                <div class="customer-table-wrap customer-directory-wrap">
+                    <table class="customer-table">
+                        <thead><tr><th>Customer</th><th>Assigned mine</th><th>Contact person</th><th>Email</th><th>Phone</th></tr></thead>
+                        <tbody id="customer-directory-rows"><tr><td colspan="5">Loading customers…</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="customer-note">Demo additions are retained until the Flask server restarts. Forecast liability is not an invoice or accrued charge.</div>
+            </div>
+        </section>
     </div>
 
-    <!-- EXPANDED SPATIAL MAP MODAL -->
+<!-- EXPANDED SPATIAL MAP MODAL -->
     <div id="map-expand-modal" class="map-expand-modal" role="dialog" aria-modal="true" aria-label="Expanded spatial reserve and telemetry map" hidden>
         <div class="map-modal-backdrop"></div>
         <div class="map-modal">
@@ -425,9 +494,39 @@
     <!-- COMPACT PIXEL READOUT (per-pixel class + NDVI) -->
     <div id="pixel-popup" class="pixel-popup" hidden></div>
 
+    <dialog class="customer-modal" id="customer-modal" aria-labelledby="customer-modal-title">
+        <form class="customer-modal-shell" id="customer-form">
+            <div class="customer-modal-head"><div><span class="timeline-kicker">Customer onboarding</span><h2 id="customer-modal-title">Add customer</h2></div><button class="modal-close" value="cancel" aria-label="Close customer form" type="button">×</button></div>
+            <div class="customer-modal-grid">
+                <label>Customer name<input id="customer-name" class="industrial-input" required maxlength="80"></label>
+                <label>Contact person<input id="customer-contact-person" class="industrial-input" maxlength="80"></label>
+                <label>Email<input id="customer-email" class="industrial-input" type="email"></label>
+                <label>Phone<input id="customer-phone" class="industrial-input" maxlength="30"></label>
+                <label>Assigned mine<select id="customer-assigned-mine" class="industrial-select" required></select></label>
+            </div>
+            <div class="modal-actions"><button class="btn btn-secondary" value="cancel" type="button">CANCEL</button><button class="btn btn-primary" id="save-customer" type="submit">OK — ADD CUSTOMER</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="customer-modal" id="contract-modal" aria-labelledby="contract-modal-title">
+        <form class="customer-modal-shell" id="customer-contract-form">
+            <div class="customer-modal-head"><div><span class="timeline-kicker">Commercial commitment</span><h2 id="contract-modal-title">Add contract</h2></div><button class="modal-close" value="cancel" aria-label="Close contract form" type="button">×</button></div>
+            <div class="customer-modal-grid">
+                <label>Customer<select id="customer-contract-customer" class="industrial-select" required></select></label>
+                <label>Assigned mine<select id="customer-mine" class="industrial-select" required></select></label>
+                <label>Contracted quantity (MT)<input id="customer-quantity" class="industrial-input" required min="1" step="1" type="number"></label>
+                <label>Offered price (₹/MT)<input id="customer-price" class="industrial-input" required min="0" step="1" type="number"></label>
+                <label>Delivery deadline<input id="customer-deadline" class="industrial-input" required type="date"></label>
+                <label>Penalty clause<select id="customer-penalty-type" class="industrial-select"><option value="INR_PER_MT">₹ per MT short</option><option value="PERCENT_OF_SHORT_VALUE">% of short value</option></select></label>
+                <label>Penalty value<input id="customer-penalty-value" class="industrial-input" required min="0" step="0.1" type="number"></label>
+            </div>
+            <div class="modal-actions"><button class="btn btn-secondary" value="cancel" type="button">CANCEL</button><button class="btn btn-primary" id="save-contract" type="submit">OK — ADD CONTRACT</button></div>
+        </form>
+    </dialog>
+
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/static/script.js?v=20260912u"></script>
+    <script src="/static/script.js?v=20260912v"></script>
 <script src="/static/weather.js"></script>
 </body>
 </html>
