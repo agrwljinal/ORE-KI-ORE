@@ -633,6 +633,29 @@ label {
     padding: 10px 14px;
 }
 
+#spectral-card[hidden],
+#spectral-filled[hidden],
+#spectral-empty[hidden] { display: none; }
+
+/* Compact "select a zone" state — shown only when screening is ON. */
+.spectral-empty {
+    padding: 10px 8px 12px;
+    text-align: center;
+}
+.spectral-empty-title {
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.6px;
+    color: #38BDF8;
+    text-transform: uppercase;
+}
+.spectral-empty-sub {
+    font-size: 11px;
+    color: #94A3B8;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
 .spectral-filled {
     display: flex;
     flex-direction: column;
@@ -973,6 +996,7 @@ label {
 .zone-inspector-meta { display: flex; gap: 12px; flex-wrap: wrap; color: #94A3B8; font: 11px monospace; margin-bottom: 8px; }
 .zone-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .zone-inspector-section { background: #080E19; border: 1px solid #1E293B; border-radius: 5px; padding: 8px 10px; }
+.zone-inspector-section[hidden] { display: none; }
 .zone-inspector-section-title { color: #38BDF8; font-size: 10px; font-weight: 900; letter-spacing: 0.7px; text-transform: uppercase; margin-bottom: 6px; }
 .zone-detail-list { display: grid; gap: 6px; }
 .zone-detail-list div { display: flex; justify-content: space-between; gap: 10px; font-size: 10.5px; }

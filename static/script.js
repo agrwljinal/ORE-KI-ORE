@@ -359,26 +359,11 @@ async function loadZones(demo = false) {
     });
     const status = zoneStatus(z);
     // Zone tooltip — dark themed, plain-language wording for a non-technical
-    // judge. The native browser title tooltip is intentionally NOT set.
-    const overall =
-      isFinite(Number(z.final_exploration_score))
-        ? Number(z.final_exploration_score)
-        : Number(z.spatial_score);
-    const simText =
-      z.spectral_similarity === null || z.spectral_similarity === undefined
-        ? "N/A"
-        : fmt(z.spectral_similarity, "%");
-    orb.bindTooltip(
-      `<div class="zone-orb-tip">` +
-      `<div class="zone-orb-tip-title">${z.name}</div>` +
-      `<div class="zone-orb-tip-status" style="color:${st.color}">${status}</div>` +
-      `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")}</strong></div>` +
-      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>` +
-      `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${z.priority || z.spatial_priority_band || "—"}</strong></div>` +
-      `<div class="zone-orb-tip-hint">Click for full intel</div>` +
-      `</div>`,
-      { direction: "top", offset: [0, -12], className: "zone-orb-tooltip" }
-    );
+    // judge. The native browser title tooltip is intentionally NOT set. The
+    // tooltip is rebuilt from the screening toggle so spectral fields only
+    // appear once Spectral Mineral Screening is ON (single source of truth).
+    orb.zone = z;
+    orb.bindTooltip(buildZoneTip(z), { direction: "top", offset: [0, -12], className: "zone-orb-tooltip" });
     orb.on("click", () => onZoneSelect(z));
     orb.addTo(layers.spatial);
 
@@ -387,6 +372,59 @@ async function loadZones(demo = false) {
 
   // Fresh load = spatial candidates identified.
   setWorkflowStep(1);
+}
+
+// Zone tooltip content, rebuilt from the screening toggle. When screening is
+// OFF the tip carries ONLY spatial + operational information — no spectral %,
+// no mineral match, no fused score. The toggle is the single source of truth.
+function buildZoneTip(z) {
+  const st = statusStyle(z);
+  const status = zoneStatus(z);
+  let rows =
+    `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")}</strong></div>`;
+  let overall = isFinite(Number(z.spatial_score)) ? Number(z.spatial_score) : 0;
+  let band = z.spatial_priority_band || "—";
+  if (screeningActive) {
+    const simText =
+      z.spectral_similarity === null || z.spectral_similarity === undefined
+        ? "N/A"
+        : fmt(z.spectral_similarity, "%");
+    rows +=
+      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>`;
+    overall = isFinite(Number(z.final_exploration_score))
+      ? Number(z.final_exploration_score)
+      : Number(z.spatial_score);
+    band = z.priority || z.spatial_priority_band || "—";
+  }
+  return (
+    `<div class="zone-orb-tip">` +
+    `<div class="zone-orb-tip-title">${z.name}</div>` +
+    `<div class="zone-orb-tip-status" style="color:${st.color}">${status}</div>` +
+    rows +
+    `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${band}</strong></div>` +
+    `<div class="zone-orb-tip-hint">Click for full intel</div>` +
+    `</div>`
+  );
+}
+
+// Rebuild every zone orb tooltip after the screening toggle flips so no stale
+// spectral fields linger in a hover tip.
+function refreshZoneTooltips() {
+  Object.values(zoneMarkers).forEach((m) => {
+    if (m && m.orb && m.orb.zone) m.orb.setTooltipContent(buildZoneTip(m.orb.zone));
+  });
+}
+
+// Rebuild monitoring-point tooltips after the screening toggle flips so their
+// spectral rows (deviation / confidence) appear and disappear consistently.
+function refreshMonitorTooltips() {
+  Object.values(telemetryMarkers).forEach((tm) => {
+    const dot = tm && tm.dot;
+    if (dot && dot.payload) {
+      const zone = (zonesCache || []).find((zz) => zz.zone_id === dot.payload.id) || {};
+      dot.setTooltipContent(monitorTooltipHtml(dot.idx, dot.payload, zone));
+    }
+  });
 }
 
 // Highlight the selected zone across every surface: map orbs, monitoring
@@ -791,6 +829,8 @@ function initScreeningToggle() {
     // Keep an open zone panel honest: spectral numbers appear/disappear with
     // the screening toggle instead of contradicting the toolbar.
     refreshToolbarNote();
+    refreshZoneTooltips(); refreshMonitorTooltips();
+    renderSpectralCard(activeZone || null);
     if (activeZone) {
       renderSpectralPanel(activeZone);
       renderFinalPanel(activeZone);
@@ -913,6 +953,8 @@ async function runScreeningReveal() {
   screeningActive = true;
   scanTint(false);
   refreshToolbarNote();
+  refreshZoneTooltips(); refreshMonitorTooltips();
+  renderSpectralCard(activeZone || null);
   if (activeZone) {
     renderSpectralPanel(activeZone);
     renderFinalPanel(activeZone);
@@ -986,6 +1028,8 @@ async function dissolveScreening() {
   haloMarkers = [];
   screeningActive = false;
   refreshToolbarNote();
+  refreshZoneTooltips(); refreshMonitorTooltips();
+  renderSpectralCard(null);
   if (activeZone) {
     renderSpectralPanel(activeZone);
     renderFinalPanel(activeZone);
@@ -1099,14 +1143,18 @@ async function showZoneDetail(zoneId) {
 // Renders the Spectral Intelligence section honouring the screening-toggle gate.
 // Also used to refresh an already-open panel when the toggle flips.
 function renderSpectralPanel(z) {
+  const section = $("zp-spectral-section");
   const lock = $("zp-spectral-lock");
   const body = $("zp-spectral-body");
-  if (!lock || !body) return;
+  if (!section) return;
   if (!screeningActive) {
-    lock.hidden = false;
-    body.hidden = true;
+    // Screening OFF: the whole Spectral Intelligence section disappears —
+    // zone popups show only spatial + operational information.
+    section.hidden = true;
     return;
   }
+  section.hidden = false;
+  if (!lock || !body) return;
   lock.hidden = true;
   body.hidden = false;
   const tier = confirmationTier(z.spectral_similarity);
@@ -2209,14 +2257,22 @@ function spectralZoneShortName(zone) {
 function renderSpectralCard(zone) {
   const card = $("spectral-card");
   const filled = $("spectral-filled");
-  // Spectral analysis appears ONLY once a zone is selected — never as an
-  // empty placeholder card / column before a selection.
-  if (!zone) {
+  const empty = $("spectral-empty");
+  // The screening toggle is the single source of truth for whether ANY
+  // spectral intelligence is visible. Screening OFF hides the card entirely,
+  // so no stale spectral values can linger from a previous selection.
+  if (!screeningActive) {
     if (card) card.hidden = true;
     if (filled) filled.hidden = true;
+    if (empty) empty.hidden = true;
     return;
   }
   if (card) card.hidden = false;
+  if (empty) empty.hidden = false;
+  if (filled) filled.hidden = true;
+  // Screening ON + no zone selected: compact prompt, not a big empty panel.
+  if (!zone) return;
+  if (empty) empty.hidden = true;
   if (filled) filled.hidden = false;
 
   const sim = zone.spectral_similarity;
@@ -2405,8 +2461,8 @@ function monitorTooltipHtml(idx, p, zone) {
     `<div class="monitor-tip-meta">` +
     `<div><span>NDVI</span><strong>${sim.ndvi}</strong></div>` +
     `<div><span>Surface moisture</span><strong>${sim.moisture}</strong></div>` +
-    `<div><span>Spectral deviation</span><strong>${sim.deviation}</strong></div>` +
-    `<div><span>Risk confidence</span><strong>${sim.confidence}%</strong></div>` +
+    (screeningActive ? `<div><span>Spectral deviation</span><strong>${sim.deviation}</strong></div>` : "") +
+    (screeningActive ? `<div><span>Risk confidence</span><strong>${sim.confidence}%</strong></div>` : "") +
     `</div>` +
     `<div class="monitor-tip-note">Simulated demo reading — not a real satellite observation.</div>` +
     `</div>`
@@ -2676,6 +2732,8 @@ async function loadTelemetry() {
           iconSize: [18, 18],
         });
         const dot = L.marker([p.lat, p.lon], { icon, riseOnHover: true });
+        dot.payload = p;
+        dot.idx = i;
         dot.on("add", () => {
           const el = dot.getElement();
           if (!el) return;
