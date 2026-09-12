@@ -185,6 +185,17 @@ function suitabilityStyle(z) {
   return SUITABILITY_META.unsuitable;
 }
 
+// Production impact / priority labels (HIGH / MEDIUM / REVIEW / LOW) are
+// colour-coded on the SAME suitability scale so every scale on screen reads
+// identically: HIGH = green (most suitable), mid = amber (review/uncertain),
+// LOW = red (least suitable). One helper keeps every impact label consistent.
+function impactColor(impact) {
+  const i = String(impact || "").toUpperCase();
+  if (i === "HIGH") return "#10B981";
+  if (i === "REVIEW" || i === "MODERATE" || i === "MEDIUM") return "#F59E0B";
+  return "#EF4444";
+}
+
 // Map backend provenance enum -> human-friendly chip text/color.
 function provenanceChip(raw) {
   if (!raw) return { text: "UNKNOWN", cls: "prov-unknown" };
@@ -1098,10 +1109,9 @@ async function showZoneDetail(zoneId) {
   stEl.style.color = "";
   const impEl = $("zp-production-impact");
   impEl.textContent = impact;
-  impEl.style.color =
-    impact === "HIGH" ? "#EF4444"
-    : impact === "REVIEW" || impact === "MODERATE" || impact === "MEDIUM" ? "#F59E0B"
-    : "#22C55E";
+  // HIGH = green (most suitable), REVIEW/MEDIUM = amber, LOW = red. Same
+  // suitability scale as the map orbs, so red never means "best" anywhere.
+  impEl.style.color = impactColor(impact);
   $("zp-water").textContent = water;
   $("zp-recommended-action").textContent = action;
 
@@ -2619,7 +2629,12 @@ function renderPitGrid(pockets) {
       if (pumps != null) waterLine += ` · ${pumps} pump${pumps === 1 ? "" : "s"}`;
     }
     meta.appendChild(metaRow(waterLine));
-    meta.appendChild(metaRow(`Production impact: ${impact}`));
+    const impRow = metaRow("Production impact: ");
+    const impVal = document.createElement("strong");
+    impVal.textContent = impact;
+    impVal.style.color = impactColor(impact);
+    impRow.appendChild(impVal);
+    meta.appendChild(impRow);
     box.appendChild(meta);
 
     const act = document.createElement("div");
@@ -2715,7 +2730,7 @@ function showExpandedZoneCard(z) {
     `<div class="ezc-title">${z.name || z.zone_id}</div>` +
     `<div class="ezc-rows">` +
     `<div class="ezc-row"><span>Water condition</span><strong>${water}</strong></div>` +
-    `<div class="ezc-row"><span>Production impact</span><strong>${impact}</strong></div>` +
+    `<div class="ezc-row"><span>Production impact</span><strong style="color:${impactColor(impact)}">${impact}</strong></div>` +
     `<div class="ezc-row"><span>Recommended action</span><strong>${action}</strong></div>` +
     simLine +
     `</div>` +
