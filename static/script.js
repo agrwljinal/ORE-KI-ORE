@@ -353,9 +353,10 @@ async function loadZones(demo = false) {
   data.zones.forEach((z) => {
     const lat = z.latitude;
     const lon = z.longitude;
-    // Orb colour speaks SPATIAL PROSPECTIVITY (green = HIGH, amber = MEDIUM,
-    // red = LOW). Operational status is text-only in the tooltip/panel.
-    const st = prospectivityStyle(z);
+    // Pin colour = the zone's canonical OPERATIONAL STATUS and is permanent:
+    // FLOODED red, SPECTRAL ANOMALY orange, OPERATIONAL green. It never
+    // changes with hover, selection, screening, zoom or prospectivity.
+    const st = statusStyle(z);
 
     // Soft expanding halo ring behind the orb (subtle pulse).
     L.marker([lat, lon], {
@@ -406,14 +407,15 @@ async function loadZones(demo = false) {
   setWorkflowStep(1);
 }
 
-// Zone tooltip content, rebuilt from the screening toggle. When screening is
-// OFF the tip carries ONLY spatial + operational information — no spectral %,
-// no mineral match, no fused score. The toggle is the single source of truth.
+// Zone tooltip content, rebuilt from the screening toggle. Every zone gets the
+// SAME themed tooltip with the same labelled rows: Status, Spatial
+// Prospectivity, Pyrolusite Spectral Similarity (only when screening is ON)
+// and Overall Assessment. All values come from the canonical zone record.
 function buildZoneTip(z) {
   const status = zoneStatus(z);
-  const pros = prospectivityStyle(z);
+  const st = statusStyle(z);
   let rows =
-    `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong style="color:${pros.color}">${fmt(z.spatial_score, "%")} — ${z.spatial_priority_band || "—"}</strong></div>`;
+    `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")} — ${z.spatial_priority_band || "—"}</strong></div>`;
   let overall = isFinite(Number(z.spatial_score)) ? Number(z.spatial_score) : 0;
   let band = z.spatial_priority_band || "—";
   if (screeningActive) {
@@ -422,7 +424,7 @@ function buildZoneTip(z) {
         ? "N/A"
         : fmt(z.spectral_similarity, "%");
     rows +=
-      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>`;
+      `<div class="zone-orb-tip-row"><span>Pyrolusite Spectral Similarity</span><strong>${simText}</strong></div>`;
     overall = isFinite(Number(z.final_exploration_score))
       ? Number(z.final_exploration_score)
       : Number(z.spatial_score);
@@ -431,9 +433,7 @@ function buildZoneTip(z) {
   return (
     `<div class="zone-orb-tip">` +
     `<div class="zone-orb-tip-title">${z.name}</div>` +
-    // Operational status is TEXT ONLY - colours on the map always mean
-    // spatial prospectivity, so status must never be colour-coded here.
-    `<div class="zone-orb-tip-status">${status}</div>` +
+    `<div class="zone-orb-tip-row"><span>Status</span><strong style="color:${st.color}">${status}</strong></div>` +
     rows +
     `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${band}</strong></div>` +
     `<div class="zone-orb-tip-hint">Click for full intel</div>` +
@@ -469,7 +469,6 @@ function applySelectedHighlights() {
     const core = m.orb.getElement && m.orb.getElement().querySelector(".zone-orb");
     if (core) {
       core.classList.toggle("zone-selected", id === selectedZoneId);
-      core.classList.toggle("zone-dimmable", id !== selectedZoneId);
     }
   });
   Object.entries(telemetryMarkers).forEach(([id, tm]) => {
@@ -1077,6 +1076,9 @@ async function showZoneDetail(zoneId) {
   const r = await fetch(`/api/zones/${zoneId}?veg_demo=1`);
   if (!r.ok) return;
   const z = await r.json();
+  // Stale-guard: if the operator has since clicked another zone, this response
+  // must never overwrite the panel with a different zone's data.
+  if (zoneId !== activeZoneId) return;
   activeZone = z;
   const panel = $("zone-panel");
   if (!panel) return;
@@ -2823,12 +2825,12 @@ async function loadTelemetry() {
       layers.telemetry.clearLayers();
       telemetryMarkers = {};
       (data.ore_pockets || []).forEach((p, i) => {
-        // Monitoring dots use the SAME prospectivity colour as the zone pin
-        // they sit on (green/amber/red), so every coloured dot on the map
-        // speaks one language and pins never appear to change colour during
-        // load. Operational status stays text-only in the tooltip.
+        // Monitoring dots use the SAME permanent status colour as the zone pin
+        // they sit on (FLOODED red, ANOMALY orange, OPERATIONAL green) so every
+        // coloured dot on the map speaks one language and pins never appear to
+        // change colour during load.
         const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
-        const st = prospectivityStyle(zone);
+        const st = statusStyle(zone);
         const icon = L.divIcon({
           className: "telemetry-marker",
           html: `<div class="telemetry-dot" style="--dot-color:${st.color};--dot-glow:${st.glow}"></div>`,

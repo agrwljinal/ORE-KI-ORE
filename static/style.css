@@ -1699,35 +1699,34 @@ label {
    synthetic surface renderer and surface-filter panel.
    ============================================================ */
 
-/* --- Glowing priority markers (translucent orbs with pulse) --- */
+/* --- Clean circular glowing monitoring points (pin colour = operational
+       status, permanent). FLOODED red / SPECTRAL ANOMALY orange / OPERATIONAL
+       green. Hover, selection, screening and zoom never re-colour the pin:
+       only the outline/glow intensity changes, never the hue. --- */
 .zone-orb {
   position: relative;
   border-radius: 50%;
   box-shadow:
-    0 0 12px 2px var(--zone-glow),
-    0 0 26px 6px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.45);
-  background: radial-gradient(circle at 36% 32%, rgba(255, 255, 255, 0.85) 0%, var(--zone-color) 30%, var(--zone-color) 58%, rgba(0, 0, 0, 0) 100%);
-  opacity: 0.95;
-  animation: zone-orb-pulse 2.6s ease-in-out infinite;
-  transition: opacity 0.3s ease;
+    0 0 0 2px rgba(255, 255, 255, 0.22),
+    0 0 10px 1px var(--zone-glow),
+    0 0 22px 5px var(--zone-glow);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.55) 0%, var(--zone-color) 30%, var(--zone-color) 100%);
+  animation: zone-orb-pulse 2.8s ease-in-out infinite;
+  transition: box-shadow 0.3s ease;
   cursor: pointer;
 }
-/* Hover never changes the pin's colour, size or glow: the suitability colour
-   is identical at rest and on hover. Only the pointer cursor (above) and the
-   read-only tooltip signal that the pin is interactive. */
+/* The selected pin keeps its exact colour — a neutral white outline ring is
+   the only visual cue, so nobody can misread selection as a status change. */
 .zone-orb.zone-selected {
-  transform: scale(1.3);
-  opacity: 1;
   box-shadow:
-    0 0 16px 3px var(--zone-glow),
-    0 0 44px 12px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.7);
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 0 12px 2px var(--zone-glow),
+    0 0 28px 7px var(--zone-glow);
   animation: zone-orb-pulse 1.4s ease-in-out infinite;
 }
 @keyframes zone-orb-pulse {
-  0%, 100% { box-shadow: 0 0 10px 1px var(--zone-glow), inset 0 0 6px 1px rgba(255,255,255,0.4); }
-  50%      { box-shadow: 0 0 22px 6px var(--zone-glow), inset 0 0 10px 3px rgba(255,255,255,0.7); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 0 8px 1px var(--zone-glow), 0 0 18px 4px var(--zone-glow); }
+  50%      { box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 0 14px 3px var(--zone-glow), 0 0 30px 8px var(--zone-glow); }
 }
 
 /* Soft expanding halo ring behind the orb (subtle pulse). */
@@ -1742,10 +1741,6 @@ label {
   0%   { transform: scale(0.25); opacity: 0.7; }
   100% { transform: scale(1.6);  opacity: 0;   }
 }
-
-/* Dim other zones when one is selected. Dimming stays constant even on hover
-   so no hover state ever re-colours or re-emphasises a pin. */
-.zone-orb.zone-dimmable { opacity: 0.45; }
 
 /* --- Energy halos (spectral screening reveal) --- */
 .energy-halo {
@@ -2049,10 +2044,9 @@ label {
 }
 .map-light-mode .zone-orb {
   box-shadow:
-    0 0 0 2px rgba(8, 16, 32, 0.30),
-    0 0 12px 2px var(--zone-glow),
-    0 0 26px 7px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.6);
+    0 0 0 2px rgba(8, 16, 32, 0.35),
+    0 0 10px 1px var(--zone-glow),
+    0 0 24px 6px var(--zone-glow);
 }
 .map-light-mode .zone-ring { box-shadow: 0 0 10px 2px rgba(8, 16, 32, 0.25); }
 .map-light-mode .halo-label {
@@ -2109,9 +2103,9 @@ label {
 .swatch-monitor { width: 10px; height: 10px; border-radius: 50%; background: #E2E8F0;
   border: 1.5px solid #64748B; }
 .swatch-boundary { background: #E879F9; height: 3px; border-radius: 2px; box-shadow: 0 0 6px rgba(232, 121, 249, 0.7); }
-.swatch-high { background: #10B981; box-shadow: 0 0 6px rgba(16, 185, 129, 0.7); }
-.swatch-medium { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
-.swatch-low { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.swatch-status-risk   { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.swatch-status-review { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+.swatch-status-ok     { background: #22C55E; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
 
 .map-expand-modal { position: fixed; inset: 0; z-index: 5000;
   display: flex; align-items: center; justify-content: center; }
@@ -2207,7 +2201,6 @@ body.map-expanded-open { overflow: hidden; }
   min-width: 205px; padding: 9px 11px 8px;
 }
 .zone-orb-tip-title { font-size: 12px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.4px; }
-.zone-orb-tip-status { font-size: 8.5px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 2px; }
 .zone-orb-tip-row { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; color: #94A3B8; }
 .zone-orb-tip-row strong { color: #E2E8F0; font-weight: 700; text-align: right; }
 .zone-orb-tip-total { border-top: 1px dashed #26334F; padding-top: 3px; margin-top: 3px; }

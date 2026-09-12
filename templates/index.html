@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260913c">
+    <link rel="stylesheet" href="/static/style.css?v=20260913d">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -24,7 +24,7 @@
                     <span>LIVE SCADA FEED</span>
                 </div>
                 <div class="utc-clock" id="system-time">--:--:-- UTC</div>
-                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260913c</span></div>
+                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260913d</span></div>
             </div>
         </header>
 
@@ -243,11 +243,10 @@
                         <button type="button" id="btn-expand-map" class="map-expand-btn" aria-label="Expand spatial map">⛶ EXPAND MAP</button>
                         <div class="map-legend" aria-hidden="true">
                             <div class="map-legend-title">MAP LEGEND</div>
-                            <div class="map-legend-item"><span class="legend-swatch swatch-monitor"></span>Monitoring points</div>
+                            <div class="map-legend-item"><span class="legend-swatch swatch-status-risk"></span>Monitoring point · Flooded</div>
+                            <div class="map-legend-item"><span class="legend-swatch swatch-status-review"></span>Monitoring point · Anomaly / under review</div>
+                            <div class="map-legend-item"><span class="legend-swatch swatch-status-ok"></span>Monitoring point · Operational</div>
                             <div class="map-legend-item"><span class="legend-swatch swatch-boundary"></span>Mine boundary</div>
-                            <div class="map-legend-item"><span class="legend-swatch swatch-high"></span>High spatial prospectivity</div>
-                            <div class="map-legend-item"><span class="legend-swatch swatch-medium"></span>Medium spatial prospectivity</div>
-                            <div class="map-legend-item"><span class="legend-swatch swatch-low"></span>Low spatial prospectivity</div>
                         </div>
                     </div>
 
@@ -563,7 +562,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script src="/static/script.js?v=20260913c"></script>
+<script src="/static/script.js?v=20260913d"></script>
     <script src="/static/weather.js?v=20260913a"></script>
 </body>
 </html>
