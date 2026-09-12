@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912G">
+    <link rel="stylesheet" href="/static/style.css?v=20260913b">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -24,7 +24,7 @@
                     <span>LIVE SCADA FEED</span>
                 </div>
                 <div class="utc-clock" id="system-time">--:--:-- UTC</div>
-                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912G</span></div>
+                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260913b</span></div>
             </div>
         </header>
 
@@ -79,6 +79,31 @@
                         </label>
                     </div>
 
+                    <!-- LIVE WEATHER CAPTURE -->
+                    <div class="weather-widget" style="margin:10px 0 6px;padding:10px 12px;background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.25);border-radius:8px;">
+                        <div class="control-label-row" style="justify-content:space-between;">
+                            <label for="city-input" style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#7dd3fc;text-transform:uppercase;">Live Weather — Balaghat Sector 4</label>
+                            <span id="weather-status" style="font-size:10px;color:#94a3b8;">Idle — no live feed</span>
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <input type="text" id="city-input" value="Balaghat" class="industrial-input" style="flex:1;min-width:0;" maxlength="60">
+                            <button type="button" id="sync-weather-btn" class="btn btn-primary" style="white-space:nowrap;">Sync Weather</button>
+                        </div>
+                        <div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:#e2e8f0;">
+                            <span><span id="temp-display">--</span>°C · <span id="condition-display">no feed</span></span>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Rainfall (24h, API)</span>
+                                <span id="rainfall-display" style="font-size:12px;font-weight:700;color:#7dd3fc;">--</span>
+                            </div>
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Rain Level</span>
+                                <span id="rain-level-display" style="font-size:12px;font-weight:700;color:#fbbf24;">--</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="control-subheader" style="display:flex;align-items:baseline;gap:8px;margin:8px 0 4px;padding:6px 10px;border-left:3px solid #60a5fa;background:rgba(96,165,250,0.08);">
                         <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#60a5fa;text-transform:uppercase;">AI-Predicted Factors</span>
                         <span style="font-size:10px;color:#94a3b8;">learned by the ML model from production data</span>
@@ -86,10 +111,10 @@
 
                     <div class="control-group">
                         <div class="control-label-row">
-                            <label for="slider-rainfall">Rainfall Volume (mm / 24h) — Stn R-04</label>
+                            <label for="slider-rainfall">Rainfall Volume (mm / 24h) — Stn R-04 <span style="color:#7dd3fc;font-weight:400;">(manual when auto-sync off)</span></label>
                             <span class="control-val-badge text-red" id="val-rainfall">88.5 mm</span>
                         </div>
-                        <input type="range" id="slider-rainfall" min="0" max="250" step="0.5" value="88.5" class="industrial-range">
+                        <input type="range" id="slider-rainfall" min="0" max="250" step="0.5" value="88.5" class="industrial-range" title="Locked to the live API while auto-sync is on; manual when auto-sync is off.">
                     </div>
 
                     <div class="control-group">
@@ -366,11 +391,11 @@
                     </div>
                 </section>
 
-                <!-- CARD: SHORTFALL DRIVER SUMMARY -->
+                <!-- CARD: ROOT-CAUSE ATTRIBUTION (XAI) -->
                 <section class="industrial-card">
                     <div class="card-header-bar">
                         <div class="card-header-title">
-                            <span>🧠</span> Shortfall Driver Summary
+                            <span>🧠</span> Root-Cause Attribution (XAI Engine)
                         </div>
                         <span class="conf-pill" id="xai-conf-badge">Confidence: Not available</span>
                     </div>
@@ -378,7 +403,7 @@
                     <div class="xai-bars-container">
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-rain">Rain and water in the pit</span>
+<span id="xai-lbl-rain">Monsoon Precipitation & Sump Flooding</span>
                                 <span class="xai-pct text-red" id="xai-val-rain">54%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -388,7 +413,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-mtbf">Truck and equipment delays</span>
+<span id="xai-lbl-mtbf">Haulage Fleet & Dumper Downtime</span>
                                 <span class="xai-pct text-amber" id="xai-val-mtbf">36%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -398,7 +423,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-grade">Labor and crew availability</span>
+<span id="xai-lbl-grade">Ore Grade Dilution & Clay Contamination</span>
                                 <span class="xai-pct text-cyan" id="xai-val-grade">10%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -408,17 +433,9 @@
                     </div>
 
                     <div class="xai-insight-box" id="xai-narrative-text">
-                        <ul class="xai-reasons-list" id="xai-reasons-list">
-                            <li>Rain and water slowed the pit face and truck routes.</li>
-                            <li>Equipment was not available when the shift began.</li>
-                            <li>Labor availability was below the plan.</li>
-                        </ul>
+                        "XAI Diagnostic: Inundation in Pit 1 accounts for the primary path obstruction. Execution of Prescriptive Rerouting to Pit B (South Ridge) re-establishes 82% of baseline throughput without exceeding loader duty cycle."
                     </div>
                 </section>
-
-                <div id="xai-explanation-section">
-                    <h2>Explainable AI</h2>
-                </div>
 
             </div>
         </main>
@@ -546,7 +563,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/static/script.js?v=20260912G"></script>
-<script src="/static/weather.js"></script>
+<script src="/static/script.js?v=20260913b"></script>
+    <script src="/static/weather.js?v=20260913a"></script>
 </body>
 </html>
