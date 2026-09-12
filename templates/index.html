@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912v">
+    <link rel="stylesheet" href="/static/style.css?v=20260912w">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -24,7 +24,7 @@
                     <span>LIVE SCADA FEED</span>
                 </div>
                 <div class="utc-clock" id="system-time">--:--:-- UTC</div>
-                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912U</span></div>
+                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912W</span></div>
             </div>
         </header>
 
@@ -249,6 +249,40 @@
 
                         <div class="zone-inspector-grid">
 
+                            <!-- FIRST: FINAL ASSESSMENT — the verdict, then the reason, then the support -->
+                            <section class="zone-inspector-section zone-inspector-final">
+                                <div class="zone-inspector-section-title">Final Assessment</div>
+                                <div class="score-label-row">FINAL SCORE</div>
+                                <div class="zone-final-top">
+                                    <div class="zone-inspector-final-score"><strong id="zp-final">--</strong><span id="zp-priority">--</span></div>
+                                    <div class="zone-inspector-decision">
+                                        <div class="zone-inspector-decision-label">FINAL DECISION</div>
+                                        <div class="zone-inspector-decision-body" id="zp-action">--</div>
+                                    </div>
+                                </div>
+                                <div class="zone-inspector-why">
+                                    <span class="zone-inspector-why-kicker">WHY</span>
+                                    <span class="zone-inspector-why-body" id="zp-explanation">--</span>
+                                </div>
+                            </section>
+
+                            <section class="zone-inspector-section">
+                                <div class="zone-inspector-section-title">Operational Status</div>
+                                <div class="zone-detail-list">
+                                    <div><span>Status</span><strong id="zp-operational-status">--</strong></div>
+                                    <div><span>Production impact</span><strong id="zp-production-impact">--</strong></div>
+                                    <div><span>Water condition</span><strong id="zp-water">--</strong></div>
+                                    <div><span>Recommended action</span><strong id="zp-recommended-action">--</strong></div>
+                                </div>
+                            </section>
+
+                            <section class="zone-inspector-section">
+                                <div class="zone-inspector-section-title">Spatial Prospectivity</div>
+                                <div class="score-label-row">SPATIAL PROSPECTIVITY</div>
+                                <div class="zone-inspector-score"><strong id="zp-spatial">--</strong><span id="zp-spatial-band">--</span></div>
+                                <div class="zone-inspector-copy" id="zp-spatial-reason">--</div>
+                            </section>
+
                             <section class="zone-inspector-section zone-inspector-surface">
                                 <div class="zone-inspector-section-title">Surface Filter <span class="sf-demotag">SYNTHETIC DEMO DATA</span></div>
                                 <canvas id="zp-surface-canvas" class="zone-surface-canvas" width="360" height="200"></canvas>
@@ -273,23 +307,6 @@
                             </section>
 
                             <section class="zone-inspector-section">
-                                <div class="zone-inspector-section-title">Operational Status</div>
-                                <div class="zone-detail-list">
-                                    <div><span>Status</span><strong id="zp-operational-status">--</strong></div>
-                                    <div><span>Production impact</span><strong id="zp-production-impact">--</strong></div>
-                                    <div><span>Water condition</span><strong id="zp-water">--</strong></div>
-                                    <div><span>Recommended action</span><strong id="zp-recommended-action">--</strong></div>
-                                </div>
-                            </section>
-
-                            <section class="zone-inspector-section">
-                                <div class="zone-inspector-section-title">Spatial Prospectivity</div>
-                                <div class="score-label-row">SPATIAL PROSPECTIVITY</div>
-                                <div class="zone-inspector-score"><strong id="zp-spatial">--</strong><span id="zp-spatial-band">--</span></div>
-                                <div class="zone-inspector-copy" id="zp-spatial-reason">--</div>
-                            </section>
-
-                            <section class="zone-inspector-section">
                                 <div class="zone-inspector-section-title">Spectral Intelligence</div>
                                 <div class="zone-spectral-lock" id="zp-spectral-lock" hidden>
                                     Screening not active — turn on Spectral Mineral Screening to analyze this zone.
@@ -304,14 +321,6 @@
                                     <div id="zp-fingerprint" class="zone-fingerprint"></div>
                                 </div>
                             </section>
-
-                            <section class="zone-inspector-section zone-inspector-final">
-                                <div class="zone-inspector-section-title">Final Exploration Priority</div>
-                                <div class="score-label-row">FINAL EXPLORATION PRIORITY</div>
-                                <div class="zone-inspector-final-score"><strong id="zp-final">--</strong><span id="zp-priority">--</span></div>
-                                <div class="zone-inspector-copy" id="zp-explanation">--</div>
-                                <div class="zone-inspector-action" id="zp-action">--</div>
-                            </section>
                         </div>
 
                         <div class="zone-panel-note" id="zp-scientific-note">Prototype screening signal — verify with field sampling before decisions.</div>
@@ -321,13 +330,9 @@
                         <!-- Populated dynamically via JS -->
                     </div>
 
-                    <!-- DYNAMIC ZONE SPECTRAL CARD (updates with the selected zone) -->
-                    <div class="spec-compliance-card spectral-card" id="spectral-card">
-                        <div class="spectral-empty" id="spectral-empty">
-                            <div class="spectral-empty-title">SELECT A ZONE</div>
-                            <div class="spectral-empty-sub">Click a monitoring point on the map to view its spectral screening.</div>
-                        </div>
-                        <div class="spectral-filled" id="spectral-filled" hidden>
+                    <!-- ZONE SPECTRAL ANALYSIS CARD (rendered only after a zone is selected) -->
+                    <div class="spec-compliance-card spectral-card" id="spectral-card" hidden>
+                        <div class="spectral-filled" id="spectral-filled">
                             <div class="spectral-head">
                                 <div class="spectral-head-score">
                                     <span class="spectral-pct" id="spectral-pct">--</span><span class="spectral-pct-unit">%</span>
@@ -534,7 +539,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/static/script.js?v=20260912v"></script>
+    <script src="/static/script.js?v=20260912w"></script>
 <script src="/static/weather.js"></script>
 </body>
 </html>

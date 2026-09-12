@@ -356,17 +356,28 @@ async function loadZones(demo = false) {
       if (!core) return;
       core.style.setProperty("--zone-color", st.color);
       core.style.setProperty("--zone-glow", st.glow);
-      core.title = z.name;
     });
     const status = zoneStatus(z);
+    // Zone tooltip — dark themed, plain-language wording for a non-technical
+    // judge. The native browser title tooltip is intentionally NOT set.
+    const overall =
+      isFinite(Number(z.final_exploration_score))
+        ? Number(z.final_exploration_score)
+        : Number(z.spatial_score);
+    const simText =
+      z.spectral_similarity === null || z.spectral_similarity === undefined
+        ? "N/A"
+        : fmt(z.spectral_similarity, "%");
     orb.bindTooltip(
-      `<b>${z.name}</b><br>` +
-      `Status: <b>${status}</b><br>` +
-      `Spatial: <b>${z.spatial_score}%</b> (${z.spatial_priority_band})<br>` +
-      `Spectral: <b>${fmt(z.spectral_similarity, "%")}</b><br>` +
-      `Fusion: <b>${z.final_exploration_score}%</b> → ${z.priority}<br>` +
-      `<i>Click for full intel</i>`,
-      { direction: "top", offset: [0, -12] }
+      `<div class="zone-orb-tip">` +
+      `<div class="zone-orb-tip-title">${z.name}</div>` +
+      `<div class="zone-orb-tip-status" style="color:${st.color}">${status}</div>` +
+      `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")}</strong></div>` +
+      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>` +
+      `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${z.priority || z.spatial_priority_band || "—"}</strong></div>` +
+      `<div class="zone-orb-tip-hint">Click for full intel</div>` +
+      `</div>`,
+      { direction: "top", offset: [0, -12], className: "zone-orb-tooltip" }
     );
     orb.on("click", () => onZoneSelect(z));
     orb.addTo(layers.spatial);
@@ -1134,13 +1145,13 @@ function renderFinalPanel(z) {
     $("zp-priority").textContent = "SPATIAL-ONLY";
     $("zp-explanation").textContent =
       `Screening inactive — priority shown from spatial data alone. Enable Spectral Mineral Screening for the fused ${z.spatial_priority_band} evaluation.`;
-    $("zp-action").textContent = "Recommended action: " + (z.recommended_action || "Field sampling / assay validation");
+    $("zp-action").textContent = z.recommended_action || "Field sampling / assay validation";
     return;
   }
   $("zp-final").textContent = fmt(z.final_exploration_score, "%");
   $("zp-priority").textContent = z.priority;
   $("zp-explanation").textContent = z.explanation;
-  $("zp-action").textContent = "Recommended action: " + (z.recommended_action || "Field sampling / assay validation");
+  $("zp-action").textContent = z.recommended_action || "Field sampling / assay validation";
 }
 
 // Renders four horizontal bars per band, showing the zone reflectance vs pyrolusite reference.
@@ -2196,14 +2207,16 @@ function spectralZoneShortName(zone) {
 }
 
 function renderSpectralCard(zone) {
-  const empty = $("spectral-empty");
+  const card = $("spectral-card");
   const filled = $("spectral-filled");
+  // Spectral analysis appears ONLY once a zone is selected — never as an
+  // empty placeholder card / column before a selection.
   if (!zone) {
-    if (empty) empty.hidden = false;
+    if (card) card.hidden = true;
     if (filled) filled.hidden = true;
     return;
   }
-  if (empty) empty.hidden = true;
+  if (card) card.hidden = false;
   if (filled) filled.hidden = false;
 
   const sim = zone.spectral_similarity;

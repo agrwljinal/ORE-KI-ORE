@@ -625,30 +625,12 @@ label {
     margin-top: 2px;
 }
 
-/* Dynamic zone spectral card */
+/* Dynamic zone spectral card — rendered only while a zone is selected. */
 .spec-compliance-card.spectral-card {
     background: #0B1322;
     border: 1px solid #1E293B;
     border-radius: 6px;
-    padding: 12px 14px;
-}
-
-.spectral-empty {
-    padding: 14px 8px;
-    text-align: center;
-}
-.spectral-empty-title {
-    font-size: 12px;
-    font-weight: 900;
-    letter-spacing: 1px;
-    color: #64748B;
-    text-transform: uppercase;
-}
-.spectral-empty-sub {
-    font-size: 11px;
-    color: #94A3B8;
-    margin-top: 6px;
-    line-height: 1.5;
+    padding: 10px 14px;
 }
 
 .spectral-filled {
@@ -948,7 +930,7 @@ label {
   border: 1px solid #1E293B;
   border-radius: 6px;
   padding: 14px 16px;
-  min-height: 330px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -971,7 +953,7 @@ label {
   transition: max-height 0.35s ease, opacity 0.25s ease, transform 0.35s ease, margin 0.35s ease, padding 0.35s ease;
 }
 .zone-inspector.is-open {
-  max-height: min(900px, 80vh);
+  max-height: min(780px, calc(100vh - 70px));
   padding-top: 14px;
   padding-bottom: 14px;
   opacity: 1;
@@ -980,15 +962,18 @@ label {
   overflow-y: auto;
 }
 .zone-panel-close {
+  flex: none;
   width: 28px; height: 28px; border: 1px solid #334155; border-radius: 4px;
-  background: #111827; color: #94A3B8; font-size: 22px; line-height: 1;
+  background: #111827; color: #94A3B8; font-size: 20px; line-height: 1;
   cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
 }
 .zone-panel-close:hover { color: #F8FAFC; border-color: #38BDF8; }
-.zone-inspector-meta { display: flex; gap: 14px; flex-wrap: wrap; color: #94A3B8; font: 11px monospace; margin-bottom: 12px; }
-.zone-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.zone-inspector-section { background: #080E19; border: 1px solid #1E293B; border-radius: 5px; padding: 10px; }
-.zone-inspector-section-title { color: #38BDF8; font-size: 10px; font-weight: 900; letter-spacing: 0.7px; text-transform: uppercase; margin-bottom: 8px; }
+.zone-inspector-meta { display: flex; gap: 12px; flex-wrap: wrap; color: #94A3B8; font: 11px monospace; margin-bottom: 8px; }
+.zone-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.zone-inspector-section { background: #080E19; border: 1px solid #1E293B; border-radius: 5px; padding: 8px 10px; }
+.zone-inspector-section-title { color: #38BDF8; font-size: 10px; font-weight: 900; letter-spacing: 0.7px; text-transform: uppercase; margin-bottom: 6px; }
 .zone-detail-list { display: grid; gap: 6px; }
 .zone-detail-list div { display: flex; justify-content: space-between; gap: 10px; font-size: 10.5px; }
 .zone-detail-list span { color: #64748B; }
@@ -1001,9 +986,19 @@ label {
 .zone-fingerprint .band-row { margin-top: 5px; }
 .zone-fingerprint .band-label { font-size: 9px; }
 .zone-fingerprint .band-values { font-size: 9px; }
-.zone-inspector-final { border-color: #334155; box-shadow: none; }
-.zone-inspector-final-score strong { color: #38BDF8; font-size: 28px; }
-.zone-inspector-action { color: #FCD34D; font-size: 11px; line-height: 1.45; margin-top: 8px; }
+.zone-inspector-final { grid-column: 1 / -1; border-color: #334155; box-shadow: none; }
+.zone-inspector-final-score strong { color: #38BDF8; font-size: 30px; }
+.zone-inspector-final-score span { font-size: 12px; }
+.zone-final-top { display: flex; align-items: center; gap: 20px; }
+.zone-inspector-decision { flex: 1; min-width: 0; }
+.zone-inspector-decision-label { font-size: 9px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; color: #94A3B8; }
+.zone-inspector-decision-body { font-size: 12.5px; font-weight: 800; color: #FCD34D; margin-top: 3px; line-height: 1.4; }
+.zone-inspector-why {
+  display: flex; gap: 8px; align-items: baseline;
+  margin-top: 8px; padding-top: 7px; border-top: 1px dashed #1E293B;
+}
+.zone-inspector-why-kicker { font-size: 9px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; color: #A78BFA; flex: none; }
+.zone-inspector-why-body { font-size: 11px; color: #CBD5E1; line-height: 1.5; }
 @media (max-width: 700px) { .zone-inspector-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) {
   .zone-inspector { top: 56px; right: 10px; width: calc(100% - 20px); }
@@ -1028,7 +1023,15 @@ label {
 .legend-med  { background: rgba(245,158,11,0.15); color:#FBBF24; border-color:#FBBF24;}
 .legend-low  { background: rgba(248,113,113,0.15); color:#F87171; border-color:#F87171;}
 
-.zone-panel-header { border-bottom: 1px solid #1E293B; padding-bottom: 8px; margin-bottom: 12px;}
+.zone-panel-header {
+  border-bottom: 1px solid #1E293B;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 .zone-panel-title  { font-size: 15px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.5px;}
 .zone-panel-subtitle { font-size: 10.5px; color: #64748B; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.6px;}
 
@@ -2097,6 +2100,42 @@ body.map-expanded-open { overflow: hidden; }
 .monitor-tip-meta span { font-size: 9px; color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
 .monitor-tip-meta strong { font-size: 10px; color: #E2E8F0; text-align: right; font-family: "JetBrains Mono", Menlo, Consolas, monospace; }
 .monitor-tip-note { font-size: 7.5px; font-style: italic; color: #64748B; }
+
+/* ============ DARK THEMED LEAFLET TOOLTIPS (no white tooltips anywhere) ============ */
+/* Higher specificity than leaflet.css's `.leaflet-tooltip` (loaded after us). */
+.leaflet-tooltip.leaflet-tooltip {
+  background: rgba(4, 10, 21, 0.96);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #E2E8F0;
+  padding: 8px 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.12);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.leaflet-tooltip.leaflet-tooltip-top::before    { border-top-color: #334155; }
+.leaflet-tooltip.leaflet-tooltip-bottom::before { border-bottom-color: #334155; }
+.leaflet-tooltip.leaflet-tooltip-left::before   { border-left-color: #334155; }
+.leaflet-tooltip.leaflet-tooltip-right::before  { border-right-color: #334155; }
+
+/* Zone orb tooltip — one custom themed tooltip, plain-language for a judge. */
+.leaflet-tooltip.zone-orb-tooltip {
+  background: rgba(4, 10, 21, 0.97);
+  border-color: #1F2A44;
+  padding: 0;
+  max-width: 250px;
+}
+.leaflet-tooltip.zone-orb-tooltip.leaflet-tooltip-top::before { border-top-color: #1F2A44; }
+.zone-orb-tip {
+  display: flex; flex-direction: column; gap: 3px;
+  min-width: 205px; padding: 9px 11px 8px;
+}
+.zone-orb-tip-title { font-size: 12px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.4px; }
+.zone-orb-tip-status { font-size: 8.5px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 2px; }
+.zone-orb-tip-row { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; color: #94A3B8; }
+.zone-orb-tip-row strong { color: #E2E8F0; font-weight: 700; text-align: right; }
+.zone-orb-tip-total { border-top: 1px dashed #26334F; padding-top: 3px; margin-top: 3px; }
+.zone-orb-tip-total strong { color: #38BDF8; font-weight: 900; }
+.zone-orb-tip-hint { font-size: 8.5px; color: #475569; font-style: italic; margin-top: 3px; }
 
 /* ============ PIT STATUS CARDS (enhanced) ============ */
 .pit-meta { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
