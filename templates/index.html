@@ -354,11 +354,11 @@
                     </div>
                 </section>
 
-                <!-- CARD: ROOT-CAUSE ATTRIBUTION (XAI) -->
+                <!-- CARD: SHORTFALL DRIVER SUMMARY -->
                 <section class="industrial-card">
                     <div class="card-header-bar">
                         <div class="card-header-title">
-                            <span>🧠</span> Root-Cause Attribution (XAI Engine)
+                            <span>🧠</span> Shortfall Driver Summary
                         </div>
                         <span class="conf-pill" id="xai-conf-badge">Confidence: Not available</span>
                     </div>
@@ -366,7 +366,7 @@
                     <div class="xai-bars-container">
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-rain">Monsoon Precipitation & Sump Flooding</span>
+<span id="xai-lbl-rain">Rain and water in the pit</span>
                                 <span class="xai-pct text-red" id="xai-val-rain">54%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -376,7 +376,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-mtbf">Haulage Fleet & Dumper Downtime</span>
+<span id="xai-lbl-mtbf">Truck and equipment delays</span>
                                 <span class="xai-pct text-amber" id="xai-val-mtbf">36%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -386,7 +386,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-grade">Ore Grade Dilution & Clay Contamination</span>
+<span id="xai-lbl-grade">Labor and crew availability</span>
                                 <span class="xai-pct text-cyan" id="xai-val-grade">10%</span>
                             </div>
                             <div class="xai-bar-track">
@@ -396,9 +396,17 @@
                     </div>
 
                     <div class="xai-insight-box" id="xai-narrative-text">
-                        "XAI Diagnostic: Inundation in Pit 1 accounts for the primary path obstruction. Execution of Prescriptive Rerouting to Pit B (South Ridge) re-establishes 82% of baseline throughput without exceeding loader duty cycle."
+                        <ul class="xai-reasons-list" id="xai-reasons-list">
+                            <li>Rain and water slowed the pit face and truck routes.</li>
+                            <li>Equipment was not available when the shift began.</li>
+                            <li>Labor availability was below the plan.</li>
+                        </ul>
                     </div>
                 </section>
+
+                <div id="xai-explanation-section">
+                    <h2>Explainable AI</h2>
+                </div>
 
             </div>
         </main>
