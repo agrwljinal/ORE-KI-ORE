@@ -46,8 +46,8 @@
                     <div class="hero-sub-value text-cyan" id="hero-output-val">11,700 MT</div>
                 </div>
                 <div class="hero-sub-metric">
-                    <div class="hero-sub-label">Monthly Target</div>
-                    <div class="hero-sub-value" id="hero-target-val">14,500 MT</div>
+                    <div class="hero-sub-label">Daily Target</div>
+                    <div class="hero-sub-value" id="hero-target-val">900 MT</div>
                 </div>
                 <div class="hero-sub-metric">
                     <div class="hero-sub-label">Simulation State</div>
@@ -96,10 +96,26 @@
 
                     <div class="control-group">
                         <div class="control-label-row">
-                            <label for="slider-mtbf">Equipment MTBF / Fleet Uptime (Hours)</label>
-                            <span class="control-val-badge text-amber" id="val-mtbf">26.0 hrs</span>
+                            <label for="slider-soil-moisture">Satellite Soil Moisture (%) — Space-Tech Input</label>
+                            <span class="control-val-badge text-cyan" id="val-soil-moisture">38.0 %</span>
                         </div>
-                        <input type="range" id="slider-mtbf" min="5" max="72" step="1" value="26.0" class="industrial-range">
+                        <input type="range" id="slider-soil-moisture" min="0" max="60" step="0.5" value="38" class="industrial-range">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="slider-downtime">Equipment Downtime (hours / day)</label>
+                            <span class="control-val-badge text-amber" id="val-downtime">6.0 hrs</span>
+                        </div>
+                        <input type="range" id="slider-downtime" min="0" max="14" step="0.5" value="6" class="industrial-range">
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="slider-blast-delay">Blast Delay (minutes)</label>
+                            <span class="control-val-badge text-amber" id="val-blast-delay">45 min</span>
+                        </div>
+                        <input type="range" id="slider-blast-delay" min="0" max="180" step="5" value="45" class="industrial-range">
                     </div>
 
                     <div class="control-group">
@@ -112,13 +128,13 @@
 
                     <div class="control-group">
                         <div class="control-label-row">
-                            <label for="input-target">Weekly Target Tonnage (MT)</label>
-                            <span class="control-val-badge text-slate" id="val-target-label">14,500 MT</span>
+                            <label for="input-target">Daily Target Tonnage (MT)</label>
+                            <span class="control-val-badge text-slate" id="val-target-label">900 MT</span>
                         </div>
-                        <input type="number" id="input-target" min="5000" max="30000" step="500" value="14500" class="industrial-input">
+                        <input type="number" id="input-target" min="100" max="5000" step="50" value="900" class="industrial-input">
                     </div>
                     <div class="best-case-note">
-                        <span class="best-case-dot"></span> Best-case = ideal conditions, not theoretical max — predicted output at full fleet capacity (14,500 MT) with all live factors at 1.0.
+                        <span class="best-case-dot"></span> The ML model predicts daily actual ROM output. Target is used only afterward to calculate the displayed daily shortfall.
                     </div>
                 </section>
 
@@ -308,7 +324,7 @@
 
                         <div class="xai-bar-row">
                             <div class="xai-bar-label-line">
-<span id="xai-lbl-mtbf">Haulage Fleet & Dumper Downtime (MTBF Loss)</span>
+<span id="xai-lbl-mtbf">Haulage Fleet & Dumper Downtime</span>
                                 <span class="xai-pct text-amber" id="xai-val-mtbf">36%</span>
                             </div>
                             <div class="xai-bar-track">

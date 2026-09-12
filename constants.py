@@ -16,12 +16,9 @@ APP_TITLE = "MOIL Mining & Financial Risk Intelligence Command Center"
 
 # --- Legacy team-shell inputs (kept for backward compat with other modules) ---
 
-# Weekly production target used as the default in the dashboard and as the
-# feature-scale input for the prediction pipeline. Frontend default is 14500 MT.
-# NOTE: per item 1 of the model refactor, this target is ONLY ever used for
-# comparison AFTER the output calculation. It never appears inside the
-# predicted-output formula.
-BASE_WEEKLY_TARGET_TONS = 14500.0
+# The direct-output model is trained on daily production records, therefore
+# this default is a daily target. It is comparison-only, never a model feature.
+BASE_WEEKLY_TARGET_TONS = 900.0
 
 # Fleet capacity baseline (Member 3 - item 1 refactor).
 # Independent, fixed reference for the fleet's realistic best-case weekly
