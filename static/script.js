@@ -127,11 +127,10 @@ const SENTINEL_BANDS = [
 const $ = (id) => document.getElementById(id);
 const fmt = (n, s = "") => (n === null || n === undefined) ? "--" : `${n}${s}`;
 
-// Canonical operational-status colours. This is the ONE colour language used
-// by the map orbs, zone cards and the map legend:
-//   FLOODED = red, OPERATIONAL = green, SPECTRAL ANOMALY / risk = amber.
-// Priority/prospectivity is carried as TEXT only so colours always mean the
-// same thing on screen.
+// Canonical operational-status colours used only by equipment/water monitoring
+// dots. Zone orbs, energy halos and the map legend do NOT use status colours:
+// they speak the suitability language below, and operational status is
+// carried as text.
 const STATUS_META = {
   FLOODED: { color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
   OPERATIONAL: { color: "#22C55E", glow: "rgba(34, 197, 94, 0.70)" },
@@ -149,7 +148,6 @@ function zoneStatus(z) {
   return "UNDER INVESTIGATION";
 }
 const statusStyle = (z) => STATUS_META[zoneStatus(z)] || STATUS_META["UNDER INVESTIGATION"];
-const statusColor = (z) => statusStyle(z).color;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -164,6 +162,27 @@ function confirmationTier(spectralSimilarity) {
   if (spectralSimilarity >= 88)
     return { label: "WEAK",      color: "#F59E0B", pulse: false, dash: "6 4" };
   return { label: "MISMATCH",    color: "#EF4444", pulse: false, dash: "2 6" };
+}
+
+// Mining-suitability colour language, derived from the pyrolusite spectral
+// similarity. This is the ONE colour meaning used by zone orbs, energy halos
+// and the map legend:
+//   GREEN = suitable for mining (strong spectral match)
+//   AMBER = uncertain, further analysis needed (weak match)
+//   RED   = not suitable (spectral mismatch)
+// Operational status is never coloured on these surfaces - it is text-only.
+const SUITABILITY_META = {
+  suitable:   { label: "SUITABLE FOR MINING", color: "#10B981", glow: "rgba(16, 185, 129, 0.70)" },
+  uncertain:  { label: "UNCERTAIN",           color: "#F59E0B", glow: "rgba(245, 158, 11, 0.70)" },
+  unsuitable: { label: "NOT SUITABLE",        color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
+  unknown:    { label: "SCORE WITHHELD",      color: "#94A3B8", glow: "rgba(148, 163, 184, 0.65)" },
+};
+function suitabilityStyle(z) {
+  const sim = z && z.spectral_similarity;
+  if (sim === null || sim === undefined) return SUITABILITY_META.unknown;
+  if (Number(sim) >= 94) return SUITABILITY_META.suitable;
+  if (Number(sim) >= 88) return SUITABILITY_META.uncertain;
+  return SUITABILITY_META.unsuitable;
 }
 
 // Map backend provenance enum -> human-friendly chip text/color.
@@ -323,7 +342,9 @@ async function loadZones(demo = false) {
   data.zones.forEach((z) => {
     const lat = z.latitude;
     const lon = z.longitude;
-    const st = statusStyle(z);
+    // Orb colour speaks MINING SUITABILITY (green/amber/red by spectral
+    // match). Operational status is text-only in the tooltip and zone panel.
+    const st = suitabilityStyle(z);
 
     // Soft expanding halo ring behind the orb (subtle pulse).
     L.marker([lat, lon], {
@@ -378,8 +399,8 @@ async function loadZones(demo = false) {
 // OFF the tip carries ONLY spatial + operational information — no spectral %,
 // no mineral match, no fused score. The toggle is the single source of truth.
 function buildZoneTip(z) {
-  const st = statusStyle(z);
   const status = zoneStatus(z);
+  const suit = suitabilityStyle(z);
   let rows =
     `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")}</strong></div>`;
   let overall = isFinite(Number(z.spatial_score)) ? Number(z.spatial_score) : 0;
@@ -390,7 +411,8 @@ function buildZoneTip(z) {
         ? "N/A"
         : fmt(z.spectral_similarity, "%");
     rows +=
-      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>`;
+      `<div class="zone-orb-tip-row"><span>Mineral Spectral Match</span><strong>${simText}</strong></div>` +
+      `<div class="zone-orb-tip-row"><span>Mining Suitability</span><strong style="color:${suit.color}">${suit.label}</strong></div>`;
     overall = isFinite(Number(z.final_exploration_score))
       ? Number(z.final_exploration_score)
       : Number(z.spatial_score);
@@ -399,7 +421,9 @@ function buildZoneTip(z) {
   return (
     `<div class="zone-orb-tip">` +
     `<div class="zone-orb-tip-title">${z.name}</div>` +
-    `<div class="zone-orb-tip-status" style="color:${st.color}">${status}</div>` +
+    // Operational status is TEXT ONLY - colours on the map always mean
+    // mining suitability, so status must never be colour-coded here.
+    `<div class="zone-orb-tip-status">${status}</div>` +
     rows +
     `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${band}</strong></div>` +
     `<div class="zone-orb-tip-hint">Click for full intel</div>` +
@@ -964,11 +988,10 @@ async function runScreeningReveal() {
 }
 
 function addEnergyHalo(z) {
-  // Halo colour mirrors the zone dot's STATUS colour (FLOODED red,
-  // OPERATIONAL green, ANOMALY amber), so every halo matches its pin. The
-  // label still carries the spectral tier + similarity %.
-  const stc = statusStyle(z);
-  const st = { color: stc.color, glow: stc.glow };
+  // Halo colour speaks MINING SUITABILITY: green = suitable, amber =
+  // uncertain, red = not suitable - always matching the zone orb's spectral
+  // similarity. The label carries the tier + similarity %.
+  const st = suitabilityStyle(z);
   const sim = z.spectral_similarity;
   const withheld = sim === null || sim === undefined;
   const radius = 48 + Math.round(((sim || 0) / 100) * 56); // 48..104 px
@@ -1068,10 +1091,11 @@ async function showZoneDetail(zoneId) {
   const lat = z.latitude.toFixed(4), lon = z.longitude.toFixed(4);
   $("zp-coords").textContent = `${lat}°N · ${lon}°E`;
 
-  // OPERATIONAL STATUS (canonical values from the backend)
+  // OPERATIONAL STATUS (canonical values from the backend). Text-only:
+  // colours on the map always mean mining suitability, never status.
   const stEl = $("zp-operational-status");
   stEl.textContent = status;
-  stEl.style.color = statusColor(z);
+  stEl.style.color = "";
   const impEl = $("zp-production-impact");
   impEl.textContent = impact;
   impEl.style.color =
