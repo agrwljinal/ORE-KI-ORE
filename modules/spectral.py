@@ -31,6 +31,17 @@ try:
 except ImportError:  # pragma: no cover
     folium = None  # type: ignore[assignment]
 
+try:  # shapely is only needed for the CASE A boundary expansion (/api/aoi_boundary)
+    from shapely.geometry import Point as _ShapelyPoint
+    from shapely.geometry import Polygon as _ShapelyPolygon
+    from shapely.ops import unary_union as _shapely_unary_union
+    _HAS_SHAPELY = True
+except Exception:  # pragma: no cover - guarded so the app still runs without it
+    _ShapelyPoint = None  # type: ignore[assignment]
+    _ShapelyPolygon = None  # type: ignore[assignment]
+    _shapely_unary_union = None  # type: ignore[assignment]
+    _HAS_SHAPELY = False
+
 
 REPO_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_AOI_KML = REPO_DIR / "data" / "07_Aug_2019_1659504705RGLR1LRProjectSite.kml"
@@ -129,6 +140,153 @@ def load_aoi_kml(path: Path | str = DEFAULT_AOI_KML) -> list[dict[str, Any]]:
     if not features:
         raise ValueError(f"No LineString features found in supplied KML: {path}")
     return features
+
+
+def expand_lease_boundary(
+    features: Sequence[Mapping[str, Any]] | None = None,
+    markers: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """CASE A fix: expand the lease boundary just enough to enclose the markers.
+
+    The supplied KML linework is the authoritative lease outline. It is
+    buffered outward by ``radius`` where ``radius`` is the smallest single
+    value that leaves every demo-zone marker strictly inside the resulting
+    polygon (max outward marker-to-boundary distance + a 0.5% / min ~1 m
+    safety margin). The expanded polygon therefore hugs the original lease
+    shape instead of being blown up arbitrarily.
+
+    Zone/zone markers are never touched: their coordinates are read-only
+    inputs that decide ``radius``; the returned geometry is the boundary only.
+
+    Requires shapely. If shapely is unavailable the original LineString
+    features are returned unchanged and ``buffered`` is False so the caller
+    can degrade gracefully (and the demo markers will be outside the raw
+    linework until shapely is installed).
+    """
+    if features is None:
+        features = load_aoi_kml()
+    if markers is None:
+        try:
+            from constants import CANDIDATE_ZONES
+
+            markers = CANDIDATE_ZONES
+        except Exception:  # pragma: no cover - constants always importable in app
+            markers = []
+
+    original_coords = [
+        feature["geometry"]["coordinates"] for feature in features
+    ]
+
+    if not _HAS_SHAPELY:
+        return {
+            "features": list(features),
+            "buffered": False,
+            "buffer_radius_m": 0.0,
+            "markers_contained": [],
+            "note": (
+                "CASE A boundary expansion requires shapely; it is not "
+                "installed, so the raw lease linework is served unchanged."
+            ),
+        }
+
+    # Build the lease polygon(s) from the supplied linework. Every part is
+    # closed implicitly and cleaned (buffer 0 fixes bow-tie/self-overlap
+    # fragments typical of double-traced KML parcels); malformed parts are
+    # skipped rather than poisoning the union.
+    base_parts = []
+    for coords in original_coords:
+        if len(coords) < 3:
+            continue
+        try:
+            polygon = _ShapelyPolygon(coords).buffer(0.0)
+            if not polygon.is_empty:
+                base_parts.append(polygon)
+        except Exception:  # noqa: BLE001 - malformed stroke; skip this part
+            continue
+    if not base_parts:
+        return {
+            "features": list(features),
+            "buffered": False,
+            "buffer_radius_m": 0.0,
+            "markers_contained": [],
+            "note": "No valid lease polygon could be built from the KML linework.",
+        }
+    lease = _shapely_unary_union(base_parts)
+
+    # Smallest uniform buffer that strictly encloses every marker.
+    radius_deg = 0.0
+    per_marker = []
+    point_of = _ShapelyPoint
+    for marker in markers:
+        point = point_of(float(marker["longitude"]), float(marker["latitude"]))
+        distance = lease.distance(point) if not lease.contains(point) else 0.0
+        per_marker.append({"zone_id": marker.get("zone_id"), "distance_deg": round(distance, 7)})
+        radius_deg = max(radius_deg, distance)
+    safety_deg = max(radius_deg * 0.005, 1e-5)  # ~1 m at these latitudes
+    buffer_radius_deg = radius_deg + safety_deg
+
+    expanded = lease.buffer(buffer_radius_deg, quad_segs=48)
+
+    # Export the expanded lease as Polygon GeoJSON features (rounded to 6 dp
+    # for tidy payloads). Holes from the fragmentary double-traced linework
+    # are resolved backward to The exterior ring only - the drawer (Leaflet)
+    # cannot fill concave fragments; we serve filled lease polygons instead.
+    features_out = []
+    geom_parts = (
+        [expanded]
+        if expanded.geom_type in ("Polygon", "MultiPolygon")
+        else [g for g in expanded.geoms if g.geom_type in ("Polygon", "MultiPolygon")]
+    )
+    for part in geom_parts:
+        polygons = [part] if part.geom_type == "Polygon" else list(part.geoms)
+        for polygon in polygons:
+            exterior = [
+                [round(lon, 6), round(lat, 6)]
+                for lon, lat in polygon.exterior.coords
+            ]
+            features_out.append({
+                "type": "Feature",
+                "properties": {
+                    "name": "76.409 Ha",
+                    "boundary_part": "buffered",
+                    "source": "Supplied 76.409-ha KML boundary (CASE A: buffered to enclose demo zone markers)",
+                },
+                "geometry": {"type": "Polygon", "coordinates": [exterior]},
+            })
+
+    centroid_lat, centroid_lon = _boundary_center(features)
+    metres_per_deg = (
+        110574.0 + 111320.0 * math.cos(math.radians(centroid_lat))
+    ) / 2.0
+    contained = []
+    for marker in markers:
+        point = point_of(float(marker["longitude"]), float(marker["latitude"]))
+        contained.append({
+            "zone_id": marker.get("zone_id"),
+            "contained": bool(expanded.contains(point) or expanded.covers(point)),
+            "distance_m": 0.0,
+            "original_latitude": marker.get("latitude"),
+            "original_longitude": marker.get("longitude"),
+            "pipeline_unchanged": True,
+        })
+    for entry, record in zip(contained, per_marker):
+        entry["distance_m"] = round(record["distance_deg"] * metres_per_deg, 1)
+
+    return {
+        "features": features_out,
+        "buffered": True,
+        "buffer_radius_deg": round(buffer_radius_deg, 7),
+        "buffer_radius_m": round(buffer_radius_deg * metres_per_deg, 1),
+        "radius_safety_m": round(safety_deg * metres_per_deg, 1),
+        "lease_area_ha": AOI_AREA_HA,
+        "markers_contained": contained,
+        "note": (
+            "CASE A: the authoritative lease outline was buffered outward by "
+            "the minimum radius that encloses all four demo-zone markers. Zone "
+            "marker coordinates are unchanged; only the boundary geometry was "
+            "expanded."
+        ),
+    }
 
 
 def _boundary_center(features: Sequence[Mapping[str, Any]]) -> tuple[float, float]:

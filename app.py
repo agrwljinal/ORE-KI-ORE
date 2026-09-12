@@ -201,14 +201,12 @@ try:
     from modules import fusion as fusion_module
     from modules.spectral import get_zone_reflectance
     from modules.spectral import MINERAL_REFERENCES
-    from modules import zone_geometry as zone_geometry_module
     ZONE_ENGINE_AVAILABLE = True
 except Exception:  # noqa: BLE001 - zone endpoints 503 instead of crashing the app
     spectral_module = None
     fusion_module = None
     get_zone_reflectance = None
     MINERAL_REFERENCES = []
-    zone_geometry_module = None
     ZONE_ENGINE_AVAILABLE = False
 
 try:
@@ -935,15 +933,6 @@ def _evaluate_zone(zone_config, use_demo_chip=False):
     exercises the NDVI masking pipeline. Those pixels are NOT real Sentinel-2
     observations; every payload field is labelled SYNTHETIC_DEMO.
     """
-    # CASE B (authoritative lease boundary): snap any demo pin that falls
-    # outside the supplied KML boundary linework to the nearest boundary point
-    # instead of letting it render outside the lease. The boundary polygon
-    # itself is never changed; corrections are logged for review.
-    zone_coordinate_correction = None
-    if zone_geometry_module is not None:
-        zone_config, zone_coordinate_correction = (
-            zone_geometry_module.ensure_zone_inside(zone_config)
-        )
     reflectance, spectral_provenance = get_zone_reflectance(
         zone_config.get("linked_geology_record_id"),
     )
@@ -1002,8 +991,6 @@ def _evaluate_zone(zone_config, use_demo_chip=False):
         ),
         "fusion_rule": C.FUSION_PROTOTYPE_LABEL,
     })
-    if zone_coordinate_correction is not None:
-        payload["coordinate_correction"] = zone_coordinate_correction
     if use_demo_chip:
         payload["data_source"] = {
             "dataset": getattr(spectral_module, "SIMULATED_CHIP_DATASET", "SYNTHETIC_DEMO"),
@@ -1075,10 +1062,7 @@ def list_zones():
         "demo_mode": use_demo_chip,
         "data_provenance_note": (
             "Zone coordinates and spatial scores are SYNTHETIC_DEMO_ZONE_DATA "
-            "used to demonstrate the end-to-end pipeline. Any zone pin outside "
-            "the supplied 76.409-ha lease boundary is automatically repositioned "
-            "to the nearest boundary point (see coordinate_correction per zone "
-            "and /api/zone_coordinate_corrections). Zone-level spectral "
+            "used to demonstrate the end-to-end pipeline. Zone-level spectral "
             "vectors are drawn from processed_geology.csv (SYNTHETIC_SCHEMA_FAITHFUL). "
             "Per-zone vegetation (NDVI) masking is applied only when per-pixel "
             "bands are supplied (real provider or veg_demo=1 SYNTHETIC_DEMO chips); "
@@ -1100,19 +1084,31 @@ def list_zones():
 
 @app.route("/api/aoi_boundary", methods=["GET"])
 def get_aoi_boundary():
-    """Return the real 76.409-ha MOIL AOI boundary as GeoJSON features."""
+    """Return the 76.409-ha MOIL AOI boundary as GeoJSON features.
+
+    CASE A fix: the supplied KML lease outline is buffered outward by the
+    smallest radius that encloses all four demo-zone markers, so the drawn
+    boundary now encloses the markers. Only the boundary geometry changes;
+    zone markers keep their original coordinates (see markers_contained).
+    The raw KML linework stays available via spectral.load_aoi_kml.
+    """
     if not ZONE_ENGINE_AVAILABLE:
         return jsonify({"error": "AOI boundary engine unavailable.", "features": []}), 503
     try:
-        features = spectral_module.load_aoi_kml()
+        expansion = spectral_module.expand_lease_boundary()
     except (FileNotFoundError, ValueError) as exc:
         return jsonify({"error": str(exc), "features": []}), 500
     return jsonify({
         "type": "FeatureCollection",
-        "features": features,
+        "features": expansion["features"],
         "aoi_name": "MOIL Bharveli-Awalajhari Mine AOI",
         "area_ha": 76.409,
-        "source": "Supplied 76.409-ha KML boundary",
+        "boundary_mode": (
+            "expanded" if expansion.get("buffered") else "raw_kml_linework"
+        ),
+        "buffer_radius_m": expansion.get("buffer_radius_m", 0.0),
+        "markers_contained": expansion.get("markers_contained", []),
+        "note": expansion.get("note", ""),
     })
 
 
@@ -1225,25 +1221,6 @@ def run_ndvi_filter():
             "Sentinel-2 observation."
         )
     return jsonify(payload)
-
-
-@app.route("/api/zone_coordinate_corrections", methods=["GET"])
-def zone_coordinate_corrections():
-    """Review log for the CASE B marker-containment correction.
-
-    Zone pins that rendered outside the authoritative 76.409-ha lease boundary
-    are repositioned to the nearest boundary point. This endpoint exposes every
-    such correction (marker -> where it moved) so it can be reviewed before the
-    corrected coordinates are finalised in constants.CANDIDATE_ZONES.
-    """
-    if not ZONE_ENGINE_AVAILABLE or zone_geometry_module is None:
-        return jsonify({"error": "Zone geometry engine unavailable.", "corrections": []}), 503
-    return jsonify({
-        "boundary_source": "Supplied 76.409-ha KML boundary",
-        "note": "Zone markers are SYNTHETIC_DEMO_ZONE_DATA; the lease boundary is authoritative and is never modified.",
-        "corrections": zone_geometry_module.corrections(),
-        "count": len(zone_geometry_module.corrections()),
-    })
 
 
 @app.route("/api/xai", methods=["GET"])
