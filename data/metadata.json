@@ -19,6 +19,18 @@
     "Tirodi and Dongri Buzurg map points should be replaced with official lease/DGPS/KML geometry when obtained.",
     "Replace synthetic rainfall with IMD; satellite reflectance with Sentinel-2/ASTER; and operational records with MOIL data when available."
   ],
+  "v4_update": {
+    "purpose": "Add soil-moisture columns so the direct-ROM shortfall model can train on satellite/space-tech telemetry alongside rainfall, downtime and blast delay, per the problem statement's satellite-input line.",
+    "added_columns": [
+      "soil_moisture_pct",
+      "soil_moisture_3d_avg",
+      "soil_moisture_7d_avg",
+      "soil_moisture_source"
+    ],
+    "generation": "soil_moisture_pct is generated realistically: it rises with the same-day rainfall, decays toward a dry baseline when conditions are dry, is bounded roughly 3-60%, and carries small noise; soil_moisture_3d_avg / soil_moisture_7d_avg are trailing rolling averages matching the existing rain_3d_mm / rain_7d_mm pattern; soil_moisture_source flags each row as synthetic.",
+    "honesty_note": "Soil-moisture values are synthetic demo data only. They must be swapped for a real satellite product (e.g. NASA SMAP or ISRO Bhuvan) before deployment.",
+    "model_mapping": "scripts/train_shortfall_model.py NUMERIC_FEATURES includes soil_moisture_pct, soil_moisture_3d_avg, soil_moisture_7d_avg; modules/prediction.py feeds the same columns into predict_actual_rom_output."
+  },
   "validation": {
     "geology_rows": 500,
     "geology_mines": 7,

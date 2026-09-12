@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MOIL Mining & Financial Risk Intelligence | Balaghat Sector 4</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260912o">
+    <link rel="stylesheet" href="/static/style.css?v=20260912r">
     <!-- Leaflet CSS for Map Telemetry -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
@@ -24,7 +24,7 @@
                     <span>LIVE SCADA FEED</span>
                 </div>
                 <div class="utc-clock" id="system-time">--:--:-- UTC</div>
-                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912L</span></div>
+                <div class="build-tag" title="Front-end build version — tells us you are on the latest JS/CSS">BUILD <span id="build-version">20260912P</span></div>
             </div>
         </header>
 
@@ -77,13 +77,11 @@
                             <span class="toggle-slider"></span>
                             <span class="toggle-label">Auto-Sync Weather API</span>
                         </label>
-                        <div class="select-wrapper">
-                            <select id="ore-grade-mix" class="industrial-select">
-                                <option value="HG">Grade High (44-46% Mn)</option>
-                                <option value="STD" selected>Grade Standard (38-42% Mn)</option>
-                                <option value="FB">Ferro Blend (34-37% Mn)</option>
-                            </select>
-                        </div>
+                    </div>
+
+                    <div class="control-subheader" style="display:flex;align-items:baseline;gap:8px;margin:8px 0 4px;padding:6px 10px;border-left:3px solid #60a5fa;background:rgba(96,165,250,0.08);">
+                        <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#60a5fa;text-transform:uppercase;">AI-Predicted Factors</span>
+                        <span style="font-size:10px;color:#94a3b8;">learned by the ML model from production data</span>
                     </div>
 
                     <div class="control-group">
@@ -116,6 +114,24 @@
                             <span class="control-val-badge text-amber" id="val-blast-delay">45 min</span>
                         </div>
                         <input type="range" id="slider-blast-delay" min="0" max="180" step="5" value="45" class="industrial-range">
+                    </div>
+
+                    <div class="control-subheader" style="display:flex;align-items:baseline;gap:8px;margin:12px 0 4px;padding:6px 10px;border-left:3px solid #fbbf24;background:rgba(251,191,36,0.08);">
+                        <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#fbbf24;text-transform:uppercase;">Manual Scenario Adjustments</span>
+                        <span style="font-size:10px;color:#94a3b8;">rule-based multipliers, not ML-computed</span>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label-row">
+                            <label for="ore-grade-mix">Ore Grade Blend (manual scenario)</label>
+                        </div>
+                        <div class="select-wrapper">
+                            <select id="ore-grade-mix" class="industrial-select">
+                                <option value="HG">Grade High (44-46% Mn)</option>
+                                <option value="STD" selected>Grade Standard (38-42% Mn)</option>
+                                <option value="FB">Ferro Blend (34-37% Mn)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div class="control-group">
@@ -453,7 +469,7 @@
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <script src="/static/script.js?v=20260912q"></script>
+    <script src="/static/script.js?v=20260912r"></script>
 <script src="/static/weather.js"></script>
 </body>
 </html>

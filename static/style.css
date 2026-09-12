@@ -797,9 +797,9 @@ label {
   font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 12px;
   border: 1px solid transparent;
 }
-.legend-high { background: rgba(248,113,113,0.15); color:#F87171; border-color:#F87171;}
+.legend-high { background: rgba(74,222,128,0.15); color:#4ADE80; border-color:#4ADE80;}
 .legend-med  { background: rgba(245,158,11,0.15); color:#FBBF24; border-color:#FBBF24;}
-.legend-low  { background: rgba(74,222,128,0.15); color:#4ADE80; border-color:#4ADE80;}
+.legend-low  { background: rgba(248,113,113,0.15); color:#F87171; border-color:#F87171;}
 
 .zone-panel-header { border-bottom: 1px solid #1E293B; padding-bottom: 8px; margin-bottom: 12px;}
 .zone-panel-title  { font-size: 15px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.5px;}
@@ -1486,6 +1486,8 @@ label {
   text-transform: uppercase;
   text-shadow: 0 0 8px rgba(0, 0, 0, 0.95), 0 0 3px rgba(0, 0, 0, 0.95);
   white-space: nowrap;
+  max-width: min(92vw, 300px);
+  min-width: 0;
   background: rgba(4, 9, 20, 0.55);
   border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: 14px;
@@ -1498,7 +1500,11 @@ label {
 .halo-label.halo-label-in { opacity: 1; }
 .halo-label .halo-kicker   { color: #CBD5E1; font-size: 8px; letter-spacing: 0.8px; }
 .halo-label .halo-sim      { color: #FBBF24; font-size: 14px; line-height: 1; }
+.halo-label .halo-sim.withheld { color: #94A3B8; font-size: 9.5px; letter-spacing: 1px; line-height: 1; white-space: nowrap; }
 .halo-label .halo-mineral  { color: #E2E8F0; font-size: 8.5px; letter-spacing: 1.2px; padding-left: 7px; border-left: 1px solid rgba(148, 163, 184, 0.35); }
+.halo-label .halo-kicker   { flex: 0 0 auto; }
+.halo-label .halo-sim      { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+.halo-label .halo-mineral  { flex: 0 0 auto; }
 
 /* --- Scan sweep overlay: wide translucent energy band with bright leading edge --- */
 .scan-wave {

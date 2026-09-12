@@ -180,7 +180,15 @@ def _derive_operating_signals(prediction: Optional[Dict[str, Any]],
 
     # --- Equipment reliability / downtime ---
     mtbf_hrs = _first_present((risk, "mtbf_hrs"), (prediction, "mtbf_hrs"))
-    equipment_downtime_hours = None
+    # The current dashboard supplies downtime directly. Prefer that observed
+    # value over reconstructing it from a model penalty, which can otherwise
+    # preserve an earlier scenario after the controls have changed.
+    equipment_downtime_hours = _first_present(
+        (risk, "equipment_downtime_hours"),
+        (prediction, "equipment_downtime_hours"),
+    )
+    if equipment_downtime_hours is not None and mtbf_hrs is None:
+        mtbf_hrs = max(0.0, 150.0 - float(equipment_downtime_hours) * 12.5)
     if mtbf_hrs is None:
         if _uses_model_penalty_scale:
             equip_penalty = penalties.get("equipment")

@@ -362,6 +362,19 @@ def _current_params():
     }
 
 
+def _prescriptive_risk_inputs():
+    """Pass the current operator controls directly to the action engine.
+
+    This avoids deriving action triggers from a prediction model's penalty
+    fields, which are a lossy representation of the live scenario.
+    """
+    return {
+        "rainfall_mm": SYSTEM_STATE["rainfall_mm"],
+        "equipment_downtime_hours": SYSTEM_STATE["equipment_downtime_hours"],
+        "labor_drop_pct": SYSTEM_STATE["labor_drop_pct"],
+    }
+
+
 def _make_prediction():
     """ML direct output, then manual labor/grade factors, then shortfall."""
     if predict_shortfall_with_model is None:
@@ -666,6 +679,15 @@ def handle_predictions():
             ore_grade = str(payload.get("ore_grade", SYSTEM_STATE.get("ore_grade", "STD"))).upper()
             if ore_grade not in getattr(C, "ORE_GRADE_FACTORS", {"STD": 1.0}):
                 raise ValueError(f"unknown ore grade '{ore_grade}'")
+            scenario_changed = any((
+                rainfall != SYSTEM_STATE["rainfall_mm"],
+                soil_moisture != SYSTEM_STATE["soil_moisture_pct"],
+                downtime != SYSTEM_STATE["equipment_downtime_hours"],
+                blast_delay != SYSTEM_STATE["blast_delay_minutes"],
+                labor != SYSTEM_STATE["labor_drop_pct"],
+                target != SYSTEM_STATE["target_tonnage"],
+                ore_grade != SYSTEM_STATE.get("ore_grade", "STD"),
+            ))
             SYSTEM_STATE["rainfall_mm"] = rainfall
             SYSTEM_STATE["soil_moisture_pct"] = soil_moisture
             SYSTEM_STATE["equipment_downtime_hours"] = downtime
@@ -674,6 +696,11 @@ def handle_predictions():
             SYSTEM_STATE["target_tonnage"] = target
             SYSTEM_STATE["ore_grade"] = ore_grade
             SYSTEM_STATE["mine_name"] = payload.get("mine_name", SYSTEM_STATE.get("mine_name")) or None
+            # An executed plan belongs to the scenario it was evaluated for.
+            # Never re-run its old selections after any operator input changes.
+            if scenario_changed:
+                SYSTEM_STATE["plan_executed"] = False
+                SYSTEM_STATE["selected_actions"] = None
         except (TypeError, ValueError):
             return jsonify({
                 "status": "error",
@@ -684,7 +711,7 @@ def handle_predictions():
 
     plan_result = None
     if SYSTEM_STATE["plan_executed"]:
-        recs = generate_recommendations(raw_pred, None, C.ORE_POCKETS)
+        recs = generate_recommendations(raw_pred, _prescriptive_risk_inputs(), C.ORE_POCKETS)
         selected = SYSTEM_STATE.get("selected_actions")
         if not selected:
             top_action = recs.get("recommended_action")
@@ -709,7 +736,7 @@ def handle_predictions():
 @app.route("/api/prescriptive", methods=["GET", "POST"])
 def handle_prescriptive():
     raw_pred = _make_prediction()
-    recs = generate_recommendations(raw_pred, None, C.ORE_POCKETS)
+    recs = generate_recommendations(raw_pred, _prescriptive_risk_inputs(), C.ORE_POCKETS)
 
     if request.method == "POST":
         body = request.get_json(silent=True)
