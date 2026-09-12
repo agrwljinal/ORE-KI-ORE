@@ -1,10 +1,10 @@
 # modules/xai.py
-# OWNER: Team Lead / Member 6 (Feature 7: XAI Breakdown + Feature 8: Confidence Meter)
+# OWNER: Team Lead / Member 6 (Feature 7: Driver Breakdown + Feature 8: Confidence Meter)
 # 
 # RESPONSIBILITIES:
 # 1. Calculate Confidence Meter score combining volatility and spectral similarity.
-# 2. Compute additive Shapley-style attribution breakdown across loss drivers.
-# 3. Render Streamlit UI visuals (Confidence metric & XAI breakdown chart).
+# 2. Compute a simple driver breakdown across loss drivers.
+# 3. Render Streamlit UI visuals (Confidence metric & driver breakdown chart).
 
 import streamlit as st
 import plotly.graph_objects as go
@@ -28,10 +28,10 @@ def model_confidence(rainfall_mm, mtbf_hrs, labor_drop_pct, spectral_similarity)
     return max(0.0, min(1.0, confidence))
 
 
-def compute_shapley_style_attribution(penalties_dict, spectral_similarity):
+def compute_driver_breakdown(penalties_dict, spectral_similarity):
     """
-    Calculates additive Shapley-style percentage contributions to shortfall/uncertainty.
-    Normalizes penalties and spectral uncertainty so they sum strictly to 100%.
+    Calculates simple percentage driver contributions to shortfall and recovery risk.
+    Normalizes penalties and spectral uncertainty so they stay easy to read.
     """
     rain_p = penalties_dict.get("rain", 0.0)
     mtbf_p = penalties_dict.get("mtbf", 0.0)
@@ -42,18 +42,21 @@ def compute_shapley_style_attribution(penalties_dict, spectral_similarity):
 
     if total_weight == 0:
         return {
-            "Rainfall Impact": 25.0,
-            "Equipment MTBF Failure": 25.0,
-            "Labor Drop": 25.0,
-            "Spectral Variance": 25.0
+            "Rain and water in the pit": 25.0,
+            "Truck and equipment delays": 25.0,
+            "Labor and crew availability": 25.0,
+            "Ore quality and material mix": 25.0
         }
 
     return {
-        "Rainfall Impact": round((rain_p / total_weight) * 100, 1),
-        "Equipment MTBF Failure": round((mtbf_p / total_weight) * 100, 1),
-        "Labor Drop": round((labor_p / total_weight) * 100, 1),
-        "Spectral Variance": round((spectral_uncertainty / total_weight) * 100, 1)
+        "Rain and water in the pit": round((rain_p / total_weight) * 100, 1),
+        "Truck and equipment delays": round((mtbf_p / total_weight) * 100, 1),
+        "Labor and crew availability": round((labor_p / total_weight) * 100, 1),
+        "Ore quality and material mix": round((spectral_uncertainty / total_weight) * 100, 1)
     }
+
+
+compute_shapley_style_attribution = compute_driver_breakdown
 
 
 def render_xai_charts(attribution_dict, confidence_score):
@@ -72,7 +75,7 @@ def render_xai_charts(attribution_dict, confidence_score):
         st.progress(confidence_score)
 
     with col2:
-        st.subheader("Shapley-Style Driver Attribution (XAI)")
+        st.subheader("Main Shortfall Drivers")
         
         drivers = list(attribution_dict.keys())
         percentages = list(attribution_dict.values())
