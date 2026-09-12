@@ -1743,7 +1743,7 @@ function buildRecItem(opt) {
 
   const gain = document.createElement("div");
   gain.className = "rec-gain";
-  gain.textContent = `+${fmtNum(opt.expected_recovery_tonnes)} t`;
+  gain.textContent = `+${fmtNum(opt.expected_recovery_tonnes)} MT`;
 
   item.appendChild(content);
   item.appendChild(gain);
@@ -1798,8 +1798,8 @@ function renderExecutionResults(data) {
 
   const summary = document.createElement("div");
   summary.className = "exec-summary";
-  summary.appendChild(buildExecMetric("RECOVERED", `+${fmtNum(recovered)} t`, "ok"));
-  summary.appendChild(buildExecMetric("REMAINING SHORTFALL", `${fmtNum(remaining)} t`, "warn"));
+  summary.appendChild(buildExecMetric("RECOVERED", `+${fmtNum(recovered)} MT`, "ok"));
+  summary.appendChild(buildExecMetric("REMAINING SHORTFALL", `${fmtNum(remaining)} MT`, "warn"));
   summary.appendChild(buildExecMetric("ACTIONS EXECUTED", `${steps.length}`, "info"));
   container.appendChild(summary);
 
@@ -1831,7 +1831,7 @@ function renderExecutionResults(data) {
 
       const value = document.createElement("div");
       value.className = "recovery-value";
-      value.textContent = `+${fmtNum(step.expected_recovery_tonnes)} t`;
+      value.textContent = `+${fmtNum(step.expected_recovery_tonnes)} MT`;
       row.appendChild(value);
       breakdown.appendChild(row);
     });
@@ -2162,7 +2162,7 @@ async function onExecute() {
     planExecuted = true;
     renderExecutionResults(data);
     setStatus(
-      `Plan executed. Recovery: +${fmtNum(data.recovered_tonnage)} t · remaining shortfall: ${fmtNum(data.remaining_shortfall)} t`,
+      `Plan executed. Recovery: +${fmtNum(data.recovered_tonnage)} MT · remaining shortfall: ${fmtNum(data.remaining_shortfall)} MT`,
       "ok",
     );
   } catch (err) {
