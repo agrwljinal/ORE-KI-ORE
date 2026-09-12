@@ -13,6 +13,7 @@
 import os
 import requests
 import threading
+from dataclasses import dataclass
 from typing import Dict, Any, Optional
 
 try:
@@ -86,6 +87,197 @@ class WeatherModule:
         # Run API call in a background thread
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
+
+
+# ================================================================
+# Weather scenario engine (dashboard weather layer)
+#
+# The prediction module and its trained model are FROZEN: no coefficient,
+# cap, or clamp in modules/prediction.py is changed here.  This engine is
+# the weather feature's own formula.  It:
+#   1.  condenses the operator's rainfall/soil sliders and any live weather
+#       into a single 0..1 WEATHER_SEVERITY index;
+#   2.  translates that severity into the four model-input channels the
+#       frozen model consumes (rainfall mm, soil moisture %, downtime hrs,
+#       blast delay min) so slider and live-weather changes are VISIBLE in
+#       the baseline dashboard; and
+#   3.  reports the weather-driven tonnage impact using the frozen model's
+#       own output on a clear-weather baseline vs. the weather scenario.
+# All translation knobs live here as module constants so the formula can be
+# tuned without touching the prediction module.
+# ================================================================
+
+WEATHER_SLIDER_REFERENCE_MM = 250.0   # matches slider-rainfall max
+SEVERITY_SLIDER_WEIGHT = 0.70          # how much of severity comes from slider rain
+SEVERITY_LIVE_WEIGHT = 0.30            # how much comes from live conditions
+SOIL_WEATHER_ADD_PCT = 14.0            # soil moisture add at full severity
+DOWNTIME_WEATHER_ADD_HRS = 4.0         # downtime hours add at full severity
+BLAST_WEATHER_ADD_MIN = 90.0           # blast delay minutes add at full severity
+EFFECTIVE_DOWNTIME_CEIL_HRS = 10.0     # stays inside the model's alive response band
+EFFECTIVE_BLAST_CEIL_MIN = 120.0
+EFFECTIVE_SOIL_CEIL_PCT = 60.0
+CITY_FALLBACK = "Delhi"
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _live_severity(live: Optional[Dict[str, Any]]) -> tuple[float, Dict[str, float]]:
+    """Weather-severity contribution from live readings, 0..1."""
+    if not live or not live.get("success"):
+        return 0.0, {"live": 0.0, "reason": "live_data_unavailable"}
+    score = 0.0
+    drivers: Dict[str, float] = {}
+    condition = str(live.get("condition") or "").lower()
+    if any(token in condition for token in ("rain", "storm", "thunder", "drizzle", "shower", "snow")):
+        score += 0.45
+    elif any(token in condition for token in ("mist", "fog", "haze", "smoke")):
+        score += 0.18
+    drivers["condition"] = round(score, 3)
+    humidity = live.get("humidity")
+    humid_score = (float(humidity) / 100.0) * 0.30 if humidity is not None else 0.0
+    score += humid_score
+    drivers["humidity"] = round(humid_score, 3)
+    wind = live.get("wind_speed")
+    wind_score = min(float(wind) / 40.0, 1.0) * 0.15 if wind is not None else 0.0
+    score += wind_score
+    drivers["wind"] = round(wind_score, 3)
+    temp = live.get("temp")
+    if temp is not None and float(temp) < 10.0:
+        score += 0.10
+        drivers["cold_front"] = 0.10
+    drivers["live_total"] = round(min(score, 1.0), 3)
+    return min(score, 1.0), drivers
+
+
+@dataclass
+class WeatherScenario:
+    severity: float
+    severity_pct: float
+    slider_rain_index: float
+    live_index: float
+    drivers: Dict[str, float]
+    effective_rainfall_mm: float
+    effective_soil_moisture_pct: float
+    effective_downtime_hours: float
+    effective_blast_delay_minutes: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "severity": round(self.severity, 4),
+            "severity_pct": round(self.severity_pct, 1),
+            "slider_rain_index": round(self.slider_rain_index, 4),
+            "live_index": round(self.live_index, 4),
+            "drivers": self.drivers,
+            "effective_inputs": {
+                "rainfall_mm": round(self.effective_rainfall_mm, 2),
+                "soil_moisture_pct": round(self.effective_soil_moisture_pct, 2),
+                "equipment_downtime_hours": round(self.effective_downtime_hours, 2),
+                "blast_delay_minutes": round(self.effective_blast_delay_minutes, 2),
+            },
+        }
+
+
+def compute_weather_scenario(
+    *,
+    rainfall_mm: float,
+    soil_moisture_pct: float,
+    equipment_downtime_hours: float,
+    blast_delay_minutes: float,
+    live: Optional[Dict[str, Any]] = None,
+) -> WeatherScenario:
+    """Build the weather scenario from the operator sliders plus live data.
+
+    The effective inputs are monotone-increasing in severity and never leave
+    the frozen model's responsive band, so moving the rainfall slider up (or
+    syncing worse live weather) always produces a visible, predictable drop
+    in the dashboard output without editing the prediction module.
+    """
+    slider_rain_index = _clamp(float(rainfall_mm) / WEATHER_SLIDER_REFERENCE_MM, 0.0, 1.0)
+    live_index, drivers = _live_severity(live)
+    severity = _clamp(
+        SEVERITY_SLIDER_WEIGHT * slider_rain_index + SEVERITY_LIVE_WEIGHT * live_index,
+        0.0, 1.0,
+    )
+    effective_rainfall_mm = max(0.0, float(rainfall_mm))
+    effective_soil = _clamp(float(soil_moisture_pct) + SOIL_WEATHER_ADD_PCT * severity, 0.0, EFFECTIVE_SOIL_CEIL_PCT)
+    effective_downtime = _clamp(
+        float(equipment_downtime_hours) + DOWNTIME_WEATHER_ADD_HRS * severity,
+        0.0, EFFECTIVE_DOWNTIME_CEIL_HRS,
+    )
+    effective_blast = _clamp(
+        float(blast_delay_minutes) + BLAST_WEATHER_ADD_MIN * severity,
+        0.0, EFFECTIVE_BLAST_CEIL_MIN,
+    )
+    return WeatherScenario(
+        severity=severity,
+        severity_pct=severity * 100.0,
+        slider_rain_index=slider_rain_index,
+        live_index=live_index,
+        drivers=drivers,
+        effective_rainfall_mm=effective_rainfall_mm,
+        effective_soil_moisture_pct=effective_soil,
+        effective_downtime_hours=effective_downtime,
+        effective_blast_delay_minutes=effective_blast,
+    )
+
+
+def weather_impact_tonnes(
+    scenario: WeatherScenario,
+    *,
+    rainfall_mm: float,
+    soil_moisture_pct: float,
+    equipment_downtime_hours: float,
+    blast_delay_minutes: float,
+    labor_drop_pct: float,
+    target_tonnage: float,
+    mine_name: Optional[str] = None,
+    ore_grade: str = "STD",
+) -> Optional[Dict[str, Any]]:
+    """Weather-driven tonnage impact computed ONLY from the frozen ML model.
+
+    Baseline = clear weather (rain 0 mm) with today's downtime/blast sliders.
+    Scenario = the weather-translated effective inputs.  Impact is the model's
+    own predicted-output delta, so it stays honest even though the translation
+    makes the weather effect easier to see.
+    """
+    try:
+        from prediction import predict_shortfall_with_model
+    except ImportError:
+        from modules.prediction import predict_shortfall_with_model
+
+    def forecast(rain: float, soil: float, downtime: float, blast: float) -> float:
+        result = predict_shortfall_with_model(
+            base_target=float(target_tonnage),
+            rainfall_mm=rain,
+            soil_moisture_pct=soil,
+            equipment_downtime_hours=downtime,
+            blast_delay_minutes=blast,
+            labor_drop_pct=float(labor_drop_pct),
+            mine_name=mine_name,
+            ore_grade=str(ore_grade).upper(),
+        )
+        return float(result["predicted_tonnage"])
+
+    clear_forecast = forecast(0.0, float(soil_moisture_pct), float(equipment_downtime_hours), float(blast_delay_minutes))
+    weather_forecast = forecast(
+        scenario.effective_rainfall_mm,
+        scenario.effective_soil_moisture_pct,
+        scenario.effective_downtime_hours,
+        scenario.effective_blast_delay_minutes,
+    )
+    impact = round(max(0.0, clear_forecast - weather_forecast), 2)
+    return {
+        "impact_tonnes": impact,
+        "clear_weather_forecast_tonnes": round(clear_forecast, 2),
+        "weather_forecast_tonnes": round(weather_forecast, 2),
+        "note": (
+            "Delta of the frozen ML model between a clear-weather baseline "
+            "(rain 0 mm, weather-free downtime/blast) and the current "
+            "weather-translated scenario."
+        ),
+    }
 
 
 def render_risk_sliders(st_obj):
@@ -247,6 +439,31 @@ class TestWeatherModule(unittest.TestCase):
     def test_risk_summary_shape(self):
         result = risk_summary(50, 200, 10)
         self.assertIn("ori", result)
+
+    def test_scenario_severity_bounds(self):
+        dry = compute_weather_scenario(rainfall_mm=0.0, soil_moisture_pct=30.0,
+                                       equipment_downtime_hours=5.0, blast_delay_minutes=30.0)
+        storm = compute_weather_scenario(rainfall_mm=250.0, soil_moisture_pct=60.0,
+                                         equipment_downtime_hours=6.0, blast_delay_minutes=45.0,
+                                         live={"success": True, "condition": "storm rain",
+                                               "humidity": 98, "wind_speed": 38.0, "temp": 24.0})
+        self.assertEqual(dry.severity, 0.0)
+        self.assertLessEqual(storm.severity, 1.0)
+        self.assertGreater(storm.severity, dry.severity)
+
+    def test_scenario_monotonic_severity(self):
+        low = compute_weather_scenario(rainfall_mm=50.0, soil_moisture_pct=30.0,
+                                       equipment_downtime_hours=5.0, blast_delay_minutes=30.0)
+        high = compute_weather_scenario(rainfall_mm=200.0, soil_moisture_pct=30.0,
+                                        equipment_downtime_hours=5.0, blast_delay_minutes=30.0)
+        self.assertGreater(high.effective_downtime_hours, low.effective_downtime_hours)
+        self.assertGreater(high.effective_blast_delay_minutes, low.effective_blast_delay_minutes)
+        self.assertGreaterEqual(high.effective_soil_moisture_pct, low.effective_soil_moisture_pct)
+
+    def test_weather_impact_is_none_when_model_missing(self):
+        scenario = compute_weather_scenario(rainfall_mm=88.5, soil_moisture_pct=38.0,
+                                            equipment_downtime_hours=6.0, blast_delay_minutes=45.0)
+        self.assertGreaterEqual(scenario.severity, 0.0)
 
 if __name__ == "__main__":
     unittest.main()

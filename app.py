@@ -210,17 +210,17 @@ except Exception:  # noqa: BLE001 - zone endpoints 503 instead of crashing the a
     ZONE_ENGINE_AVAILABLE = False
 
 try:
-    from modules.xai import model_confidence, compute_driver_breakdown
+    from modules.xai import model_confidence, compute_shapley_style_attribution
 except ImportError:
     def model_confidence(rainfall_mm=0.0, mtbf_hrs=150.0, labor_drop_pct=0.0, spectral_similarity=0.9784):
         return 0.942
 
-    def compute_driver_breakdown(penalties_dict=None, spectral_similarity=0.9784):
+    def compute_shapley_style_attribution(penalties_dict=None, spectral_similarity=0.9784):
         return {
-            "Rain and water in the pit": 54.0,
-            "Truck and equipment delays": 36.0,
-            "Labor and crew availability": 8.0,
-            "Ore quality and material mix": 2.0,
+            "Rainfall Impact": 54.0,
+            "Equipment MTBF Failure": 36.0,
+            "Labor Drop": 8.0,
+            "Spectral Variance": 2.0,
         }
 
 try:
@@ -1214,119 +1214,120 @@ def get_xai():
 
     raw_pred = _make_prediction()
     penalties = dict(raw_pred.get("penalties") or {})
-    # Keep legacy penalty keys stable for local fallback data.
+    # Harmonize the ML model's penalty key ("equipment") with the key the XAI
+    # engine expects ("mtbf") so attributions stay meaningful on both paths.
     if "equipment" in penalties and "mtbf" not in penalties:
         penalties["mtbf"] = penalties.pop("equipment")
 
     try:
-        attributions = compute_driver_breakdown(penalties, spectral_sim)
+        attributions = compute_shapley_style_attribution(penalties, spectral_sim)
     except TypeError:
-        attributions = compute_driver_breakdown(raw_pred, spectral_sim)
+        attributions = compute_shapley_style_attribution(raw_pred)
 
     drivers = sorted(attributions.items(), key=lambda kv: str(kv[1]))
     top_label, top_pct = drivers[-1] if drivers else ("Unknown driver", 0.0)
     predicted = float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0)
     shortfall = float(raw_pred.get("shortfall_tonnage") or raw_pred.get("shortfall_tons") or 0.0)
 
-    confidence_score = None
-    try:
-        confidence_score = model_confidence(
-            rainfall_mm=float(SYSTEM_STATE.get("rainfall_mm") or 0.0),
-            mtbf_hrs=max(1.0, 48.0 - float(SYSTEM_STATE.get("equipment_downtime_hours") or 0.0)),
-            labor_drop_pct=float(SYSTEM_STATE.get("labor_drop_pct") or 0.0),
-            spectral_similarity=spectral_sim,
-        )
-    except Exception:  # noqa: BLE001
-        confidence_score = None
-
-    confidence_pct = round(confidence_score * 100, 1) if confidence_score is not None else None
-
-    # Derive the requested explainable factor bar model from the live shortfall prediction object,
-    # ensuring each category is represented with real-time normalized percentages.
-    ml_features = raw_pred.get("ml_features") or {}
-    rain_norm = max(0.0, min(1.0, float(penalties.get("rain") or 0.0)))
-    equipment_norm = max(0.0, min(1.0, float(penalties.get("equipment") or penalties.get("mtbf") or 0.0)))
-    blast_norm = max(0.0, min(1.0, float(penalties.get("blast_delay") or 0.0)))
-    soil_moisture = float(ml_features.get("soil_moisture_pct") or SYSTEM_STATE.get("soil_moisture_pct") or 0.0)
-    soil_norm = max(0.0, min(1.0, soil_moisture / 100.0))
-
-    rainfall_pct = round(rain_norm * 100.0, 1)
-    soil_pct = round(soil_norm * 100.0, 1)
-    equipment_pct = round(equipment_norm * 100.0, 1)
-    blast_pct = round(blast_norm * 100.0, 1)
-    other_pct = max(1.0, round(100.0 - min(100.0, rainfall_pct + soil_pct + equipment_pct + blast_pct), 1))
-
-    # Keep requested chart vocabulary explicit and easy for the frontend to bind.
-    chart_data = [
-        {"factor": "Rainfall", "value": max(1.0, rainfall_pct)},
-        {"factor": "Satellite Soil Moisture", "value": max(1.0, soil_pct)},
-        {"factor": "Equipment Downtime", "value": max(1.0, equipment_pct)},
-        {"factor": "Blast Delay", "value": max(1.0, blast_pct)},
-        {"factor": "Others", "value": max(1.0, other_pct)},
-    ]
-
-    # Build simple child-friendly bullet reasons directly from the live driver profile.
-    reasons = [
-        f"Rainfall is contributing about {rainfall_pct:.1f}% to the output gap today.",
-        f"Satellite soil moisture is adding about {soil_pct:.1f}% to the moisture pressure.",
-        f"Equipment downtime is creating about {equipment_pct:.1f}% of the current delay.",
-        f"Blast delay is adding about {blast_pct:.1f}% of the production drag.",
-        f"Other site factors account for about {other_pct:.1f}% of the remaining shortfall.",
-    ]
-
-    cost_rate = float(getattr(C, "MN_COST_PER_TON_INR", 0.0))
-    cost_breakdown = {}
-    for label, pct in attributions.items():
-        cost_breakdown[label] = round(shortfall * cost_rate * (pct / 100.0), 2)
-
     return jsonify({
         "status": "success",
-        "confidence_pct": confidence_pct,
-        "confidence_status": "AVAILABLE" if confidence_pct is not None else "NOT_AVAILABLE",
+        "confidence_pct": None,
+        "confidence_status": "NOT_AVAILABLE",
         "attributions": attributions,
-        "cost_breakdown": cost_breakdown,
-        "reasons": reasons,
         "predicted_tonnage": round(predicted, 2),
         "shortfall_tonnage": round(shortfall, 2),
         "narrative": (
-            f"The main driver is {top_label}, which contributes about {float(top_pct):.0f}% to the current "
+            f"XAI Diagnostic: '{top_label}' accounts for ~{float(top_pct):.0f}% of the current "
             f"{round(shortfall):,} t shortfall against {round(predicted):,} t predicted output. "
-            "The recovery actions below are the fastest way to reduce the shortfall."
+            "Review the prescriptive actions on the left and execute the plan to begin recovery."
         ),
-        "xai_chart_data": chart_data,
-        "xai_bullet_reasons": reasons,
     })
 
 # ---------------------------------------------------------
 # WEATHER API ENDPOINT
 # ---------------------------------------------------------
 try:
-    from modules.weather import WeatherModule
+    from modules.weather import WeatherModule, compute_weather_scenario, weather_impact_tonnes
     weather_module = WeatherModule()
 except ImportError:
     weather_module = None
+    compute_weather_scenario = None
+    weather_impact_tonnes = None
 
 @app.route("/api/weather", methods=["GET", "POST"])
 def get_weather():
-    city = request.args.get("city", "Delhi")
-    if request.method == "POST":
-        payload = request.get_json(silent=True) or {}
-        city = payload.get("city", city)
+    payload = request.get_json(silent=True) or {}
+    city = (request.args.get("city") or payload.get("city") or "Delhi").strip() or "Delhi"
 
-    if weather_module:
-        # Fetch live weather data using your WeatherModule
-        result = weather_module.service.fetch_live_weather(city)
-        return jsonify(result)
+    live = None
+    live_status = "unavailable"
+    live_error = None
+    if weather_module and compute_weather_scenario is not None:
+        fetched = weather_module.service.fetch_live_weather(city)
+        if fetched and fetched.get("success"):
+            live = fetched
+            live_status = "ok"
+        else:
+            live_status = "missing_key" if (fetched or {}).get("error", "").startswith("Missing") else "failed"
+            live_error = (fetched or {}).get("error", "Live weather unavailable.")
 
-    # Mock fallback if modules/weather.py is missing
-    return jsonify({
-        "success": True,
+    scenario = compute_weather_scenario(
+        rainfall_mm=SYSTEM_STATE["rainfall_mm"],
+        soil_moisture_pct=SYSTEM_STATE["soil_moisture_pct"],
+        equipment_downtime_hours=SYSTEM_STATE["equipment_downtime_hours"],
+        blast_delay_minutes=SYSTEM_STATE["blast_delay_minutes"],
+        live=live,
+    )
+    impact = None
+    if weather_impact_tonnes is not None:
+        try:
+            impact = weather_impact_tonnes(
+                scenario,
+                rainfall_mm=SYSTEM_STATE["rainfall_mm"],
+                soil_moisture_pct=SYSTEM_STATE["soil_moisture_pct"],
+                equipment_downtime_hours=SYSTEM_STATE["equipment_downtime_hours"],
+                blast_delay_minutes=SYSTEM_STATE["blast_delay_minutes"],
+                labor_drop_pct=SYSTEM_STATE["labor_drop_pct"],
+                target_tonnage=SYSTEM_STATE["target_tonnage"],
+                mine_name=SYSTEM_STATE.get("mine_name") or None,
+                ore_grade=SYSTEM_STATE.get("ore_grade", "STD"),
+            )
+        except Exception:  # noqa: BLE001 - weather path must never take the API down
+            impact = None
+
+    base_response = {
+        "status": "success",
         "city": city,
-        "temp": 28.5,
-        "humidity": 65,
-        "condition": "Haze (Fallback Mode)",
-        "wind_speed": 3.1
-    })
+        "live": live,
+        "live_status": live_status,
+        "live_error": live_error,
+        "weather_scenario": scenario.to_dict(),
+        "weather_impact": impact,
+        "prediction": None,
+    }
+
+    if request.method == "POST":
+        # Auto-sync action: translate current weather into the model inputs the
+        # frozen prediction module consumes, so the baseline dashboard visibly
+        # shifts. Only applied when live data actually arrived; the prediction
+        # module and its model are never modified.
+        if live is None:
+            base_response.update({"status": "error", "message": "Live weather unavailable; nothing applied."})
+            return jsonify(base_response), 200
+        SYSTEM_STATE["rainfall_mm"] = scenario.effective_rainfall_mm
+        SYSTEM_STATE["soil_moisture_pct"] = scenario.effective_soil_moisture_pct
+        SYSTEM_STATE["equipment_downtime_hours"] = scenario.effective_downtime_hours
+        SYSTEM_STATE["blast_delay_minutes"] = scenario.effective_blast_delay_minutes
+        SYSTEM_STATE["plan_executed"] = False
+        SYSTEM_STATE["selected_actions"] = None
+        try:
+            raw_pred = _make_prediction()
+            view = _prediction_view(raw_pred, SYSTEM_STATE["target_tonnage"], None)
+        except Exception:  # noqa: BLE001 - model availability must not break weather sync
+            view = None
+        base_response.update({"prediction": view, "parameters": _current_params()})
+
+    return jsonify(base_response)
 
 if __name__ == "__main__":
     app.run(

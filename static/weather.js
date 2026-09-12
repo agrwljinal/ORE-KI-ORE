@@ -1,48 +1,183 @@
-async function syncWeatherData() {
-    const syncBtn = document.getElementById("sync-weather-btn");
-    const cityInput = document.getElementById("city-input");
-    const weatherStatus = document.getElementById("weather-status");
+(function () {
+  "use strict";
 
-    const city = cityInput ? cityInput.value : "Delhi";
+  var AUTO_SYNC_MS = 5 * 60 * 1000;
+  var autoSyncTimer = null;
 
-    // 1. Disable button & show loading state
-    if (syncBtn) {
-        syncBtn.disabled = true;
-        syncBtn.innerText = "Syncing...";
+  function $(id) {
+    return document.getElementById(id);
+  }
+
+  function setText(id, value) {
+    var el = $(id);
+    if (el) el.textContent = value == null ? "--" : String(value);
+  }
+
+  function severityColour(severityPct) {
+    if (severityPct >= 60) return "#f87171";
+    if (severityPct >= 30) return "#fbbf24";
+    return "#60a5fa";
+  }
+
+  function renderWeatherPanel(data) {
+    var live = data.live || {};
+    var scenario = data.weather_scenario || {};
+    var impact = data.weather_impact || null;
+
+    if (live.success) {
+      setText("temp-display", live.temp != null ? Number(live.temp).toFixed(1) : "--");
+      setText("condition-display", live.condition || "n/a");
+      setText("weather-status", "Updated for " + (live.city || data.city));
+    } else {
+      setText("temp-display", "--");
+      setText("condition-display", "no feed");
+      var statusMsg = data.live_status === "missing_key"
+        ? "Live weather needs OPENWEATHER_API_KEY"
+        : (data.live_error || "Live weather unavailable");
+      setText("weather-status", statusMsg);
     }
-    if (weatherStatus) weatherStatus.innerText = "Fetching live weather...";
 
-    try {
-        // 2. Call the Flask weather endpoint
-        const response = await fetch(`/api/weather?city=${encodeURIComponent(city)}`);
-        const data = await response.json();
+    var severityPct = scenario.severity_pct != null ? Number(scenario.severity_pct) : 0;
+    setText("weather-severity", Math.round(severityPct) + "%");
+    var bar = $("weather-severity-bar");
+    if (bar) {
+      bar.style.width = Math.min(100, Math.max(0, severityPct)) + "%";
+      bar.style.background = severityColour(severityPct);
+    }
 
-        // 3. Render updated weather data
-        if (data.success) {
-            const tempDisplay = document.getElementById("temp-display");
-            const condDisplay = document.getElementById("condition-display");
-            
-            if (tempDisplay) tempDisplay.innerText = `${data.temp} °C`;
-            if (condDisplay) condDisplay.innerText = data.condition;
-            if (weatherStatus) weatherStatus.innerText = `Updated for ${data.city}`;
-        } else {
-            if (weatherStatus) weatherStatus.innerText = `Error: ${data.error || "Failed to fetch weather"}`;
+    if (impact && impact.impact_tonnes != null) {
+      setText("weather-impact", "≈ " + Number(impact.impact_tonnes).toLocaleString(undefined, { maximumFractionDigits: 1 }) + " t vs clear day");
+      var note = impact.weather_forecast_tonnes != null
+        ? "Model forecast this weather ≈ " + Number(impact.weather_forecast_tonnes).toLocaleString(undefined, { maximumFractionDigits: 0 }) + " t (clear ≈ " + Number(impact.clear_weather_forecast_tonnes).toLocaleString(undefined, { maximumFractionDigits: 0 }) + " t)"
+        : "";
+      setText("weather-impact-note", note);
+    } else {
+      setText("weather-impact", "— t");
+      setText("weather-impact-note", impact ? impact.note : "");
+    }
+  }
+
+  function currentState() {
+    function slider(id, fallback) {
+      var el = $(id);
+      return el ? parseFloat(el.value) : fallback;
+    }
+    return {
+      rainfall_mm: slider("slider-rainfall", 88.5),
+      soil_moisture_pct: slider("slider-soil-moisture", 38),
+      equipment_downtime_hours: slider("slider-downtime", 6),
+      blast_delay_minutes: slider("slider-blast-delay", 45)
+    };
+  }
+
+  function refreshWeatherPanel(cityOverride) {
+    var city = (cityOverride || getCity()).trim() || "Delhi";
+    fetch("/api/weather?city=" + encodeURIComponent(city), { headers: { "cache-control": "no-cache" } })
+      .then(function (res) { return res.json(); })
+      .then(renderWeatherPanel)
+      .catch(function () {
+        setText("weather-status", "Failed to reach weather service.");
+      });
+  }
+
+  function getCity() {
+    var el = $("city-input");
+    return el ? (el.value || "Delhi") : "Delhi";
+  }
+
+  function applyEffectiveInputs(inputs) {
+    if (!inputs) return;
+    var mapping = {
+      "slider-rainfall": inputs.rainfall_mm,
+      "slider-soil-moisture": inputs.soil_moisture_pct,
+      "slider-downtime": inputs.equipment_downtime_hours,
+      "slider-blast-delay": inputs.blast_delay_minutes
+    };
+    Object.keys(mapping).forEach(function (id) {
+      var el = $(id);
+      if (!el || mapping[id] == null) return;
+      var min = parseFloat(el.min), max = parseFloat(el.max), step = parseFloat(el.step) || 1;
+      var value = Math.min(max, Math.max(min, Number(mapping[id])));
+      value = Math.round(value / step) * step;
+      el.value = Math.min(max, Math.max(min, value));
+    });
+    if (typeof window.updateControlBadges === "function" && typeof window.getControls === "function") {
+      try { window.updateControlBadges(window.getControls()); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function syncWeatherNow() {
+    var button = $("sync-weather-btn");
+    var originalText = button ? button.textContent : "";
+    if (button) { button.disabled = true; button.textContent = "Syncing..."; }
+    setText("weather-status", "Fetching live weather...");
+
+    fetch("/api/weather", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ city: getCity() })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.status !== "success" || data.live_status !== "ok" || !data.live || !data.live.success) {
+          renderWeatherPanel(data);
+          setText("weather-status", data.message || data.live_error || "Live weather unavailable; nothing applied.");
+          return;
         }
-    } catch (err) {
-        if (weatherStatus) weatherStatus.innerText = "Failed to connect to weather server.";
-    } finally {
-        // 4. Re-enable button
-        if (syncBtn) {
-            syncBtn.disabled = false;
-            syncBtn.innerText = "Sync Weather";
+        applyEffectiveInputs(data.weather_scenario && data.weather_scenario.effective_inputs);
+        renderWeatherPanel(data);
+        if (typeof window.refreshAll === "function") {
+          window.refreshAll(true);
         }
-    }
-}
+      })
+      .catch(function () {
+        setText("weather-status", "Failed to connect to weather service.");
+      })
+      .then(function () {
+        if (button) { button.disabled = false; button.textContent = originalText || "Sync Weather"; }
+      });
+  }
 
-// Bind event listener to the sync button when DOM is ready
-document.addEventListener("DOMContentLoaded", () => {
-    const btn = document.getElementById("sync-weather-btn");
-    if (btn) {
-        btn.addEventListener("click", syncWeatherData);
+  function startAutoSync() {
+    stopAutoSync();
+    autoSyncTimer = setInterval(syncWeatherNow, AUTO_SYNC_MS);
+  }
+
+  function stopAutoSync() {
+    if (autoSyncTimer) {
+      clearInterval(autoSyncTimer);
+      autoSyncTimer = null;
     }
-});
+  }
+
+  function bind() {
+    var button = $("sync-weather-btn");
+    if (button) button.addEventListener("click", syncWeatherNow);
+
+    var toggle = $("toggle-weather-sync");
+    if (toggle) {
+      toggle.addEventListener("change", function () {
+        if (toggle.checked) startAutoSync(); else stopAutoSync();
+      });
+      if (toggle.checked) startAutoSync();
+    }
+
+    var debounce = null;
+    ["slider-rainfall", "slider-soil-moisture", "slider-downtime", "slider-blast-delay", "input-target"].forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      el.addEventListener("change", function () {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(function () { refreshWeatherPanel(); }, 350);
+      });
+    });
+
+    refreshWeatherPanel();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bind);
+  } else {
+    bind();
+  }
+})();
