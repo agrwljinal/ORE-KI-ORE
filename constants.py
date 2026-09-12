@@ -121,10 +121,15 @@ FUSION_PROTOTYPE_LABEL = (
 #   linked_geology_record_id - which processed_geology.csv row supplies
 #                              the (synthetic) Sentinel-2 reflectance
 #
-# The KML AOI covers roughly:
-#     lat  21.828 - 21.856
-#     lon  80.216 - 80.246
-# Coordinates below sit comfortably inside that envelope.
+# The coordinates below were originally typed against a loose envelope
+# ("lat 21.828-21.856, lon 80.216-80.246") that is WIDER than the real leased
+# extent (KML bounds lat 21.827-21.847, lon 80.218-80.238), so several pins
+# render OUTSIDE the authoritative KML boundary. Per the CASE B decision in
+# modules/zone_geometry.py, the boundary is authoritative and each zone pin is
+# checked at serve time against that boundary: any pin found outside is snapped
+# to the nearest point on the boundary linework and logged for review
+# (see /api/zone_coordinate_corrections). After review the corrected values can
+# be committed here so the demo pins sit inside the lease for ever.
 SYNTHETIC_ZONE_TAG = "SYNTHETIC_DEMO_ZONE_DATA"
 
 CANDIDATE_ZONES = [
