@@ -1171,6 +1171,7 @@ label {
 /* Narrower grid at high resolutions to keep the map dominant */
 @media (min-width: 1500px) {
   .map-panel-split { grid-template-columns: 1.75fr 1fr; }
+}
 
 /* ============ EXECUTION UX (from merged frontend) ============ */
 /* API Status Banner (script.js) */
