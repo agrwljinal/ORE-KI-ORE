@@ -2975,7 +2975,9 @@ function bindControls() {
       if (xaiData && Array.isArray(xaiData.xai_chart_data)) {
         renderXai(xaiData);
       }
-      await postPredictions(controls);
+      const prediction = await postPredictions(controls);
+      renderPrediction(prediction);
+      await loadPrescriptive();
     } catch (err) {
       const livePayload = makeLiveXaiPayload(controls);
       renderXai(livePayload);
