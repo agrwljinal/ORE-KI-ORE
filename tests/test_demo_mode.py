@@ -90,6 +90,51 @@ class VegDemoModeRouteTests(unittest.TestCase):
         self.assertEqual(body["vegetation_mask"]["level"], "AOI_LEVEL_PROTOTYPE")
         self.assertNotIn("demo_chip", body)
 
+    def test_xai_route_restores_confidence_and_explanation_shape(self):
+        body = self.client.get("/api/xai").get_json()
+
+        self.assertEqual(body["status"], "success")
+        self.assertIn("confidence_pct", body)
+        self.assertIn("confidence_status", body)
+        self.assertIsInstance(body["confidence_pct"], (int, float))
+        self.assertGreaterEqual(body["confidence_pct"], 0)
+        self.assertLessEqual(body["confidence_pct"], 100)
+        self.assertIn("xai_chart_data", body)
+        self.assertIsInstance(body["xai_chart_data"], list)
+        self.assertGreater(len(body["xai_chart_data"]), 0)
+        self.assertIn("xai_bullet_reasons", body)
+        self.assertIsInstance(body["xai_bullet_reasons"], list)
+
+    def test_xai_route_accepts_slider_payload_and_returns_expected_keys(self):
+        payload = {
+            "rainfall_mm": 90.0,
+            "soil_moisture_pct": 40.0,
+            "equipment_downtime_hours": 8.0,
+            "blast_delay_minutes": 50.0,
+            "labor_drop_pct": 12.0,
+            "target_tonnage": 14500.0,
+            "ore_grade": "STD",
+        }
+        body = self.client.post("/api/xai", json=payload)
+
+        self.assertEqual(body.status_code, 200)
+        data = body.get_json()
+        self.assertEqual(data["status"], "success")
+        self.assertIn("confidence_pct", data)
+        self.assertIn("confidence_status", data)
+        self.assertIn("attributions", data)
+        self.assertEqual(set(data["attributions"].keys()), {
+            "Rainfall",
+            "Soil Moisture",
+            "Equipment Downtime",
+            "Blast Delay",
+            "Labor Drop",
+            "Ore Quality",
+        })
+        self.assertIn("xai_chart_data", data)
+        self.assertIn("xai_bullet_reasons", data)
+        self.assertIn("narrative", data)
+
 
 if __name__ == "__main__":
     unittest.main()
