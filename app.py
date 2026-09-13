@@ -284,6 +284,7 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
     base_target = float(base_target)
     predicted = float(raw_pred.get("predicted_tonnage") or raw_pred.get("predicted_output") or 0.0)
     shortfall = float(raw_pred.get("shortfall_tonnage") or raw_pred.get("shortfall_tons") or 0.0)
+    predicted_before_plan = predicted
     plan_applied = plan_result is not None
     recovered = 0.0
     if plan_result is not None:
@@ -294,7 +295,7 @@ def _prediction_view(raw_pred, base_target, plan_result=None):
     # Single derived-state rule (items 4 & 5): banner, sim-state and the rupee
     # ledger all come from ONE live predicted-output comparison.
     state = derive_banner_state(
-        predicted,
+        predicted_before_plan,
         base_target,
         recovered_tonnage=recovered,
         plan_executed=plan_applied,

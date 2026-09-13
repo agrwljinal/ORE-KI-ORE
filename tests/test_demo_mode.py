@@ -2,10 +2,21 @@
 
 import unittest
 
-from app import app
+from app import _prediction_view, app
 
 
 class VegDemoModeRouteTests(unittest.TestCase):
+    def test_prediction_banner_applies_plan_recovery_once(self):
+        view = _prediction_view(
+            {"predicted_tonnage": 746.0, "shortfall_tonnage": 154.0},
+            900.0,
+            {"total_expected_recovery_tonnes": 63.0},
+        )
+
+        self.assertEqual(view["predicted_tonnage"], 809.0)
+        self.assertEqual(view["shortfall_tonnage"], 154.0)
+        self.assertEqual(view["banner"]["remaining_shortfall_tonnes"], 154.0)
+
     def setUp(self):
         app.config["TESTING"] = True
         self.client = app.test_client()
