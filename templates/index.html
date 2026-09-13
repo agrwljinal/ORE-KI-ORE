@@ -79,6 +79,31 @@
                         </label>
                     </div>
 
+                    <!-- LIVE WEATHER CAPTURE -->
+                    <div class="weather-widget" style="margin:10px 0 6px;padding:10px 12px;background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.25);border-radius:8px;">
+                        <div class="control-label-row" style="justify-content:space-between;">
+                            <label for="city-input" style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#7dd3fc;text-transform:uppercase;">Live Weather — Balaghat Sector 4</label>
+                            <span id="weather-status" style="font-size:10px;color:#94a3b8;">Idle — no live feed</span>
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <input type="text" id="city-input" value="Balaghat" class="industrial-input" style="flex:1;min-width:0;" maxlength="60">
+                            <button type="button" id="sync-weather-btn" class="btn btn-primary" style="white-space:nowrap;">Sync Weather</button>
+                        </div>
+                        <div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:#e2e8f0;">
+                            <span><span id="temp-display">--</span>°C · <span id="condition-display">no feed</span></span>
+                        </div>
+                        <div style="margin-top:8px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                                <span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Rainfall (24h, API)</span>
+                                <span id="rainfall-display" style="font-size:12px;font-weight:700;color:#7dd3fc;">--</span>
+                            </div>
+                            <div style="display:flex;justify-content="space-between;align-items:center;">
+                                <span style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;">Rain Level</span>
+                                <span id="rain-level-display" style="font-size:12px;font-weight:700;color:#fbbf24;">--</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="control-subheader" style="display:flex;align-items:baseline;gap:8px;margin:8px 0 4px;padding:6px 10px;border-left:3px solid #60a5fa;background:rgba(96,165,250,0.08);">
                         <span style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:#60a5fa;text-transform:uppercase;">AI-Predicted Factors</span>
                         <span style="font-size:10px;color:#94a3b8;">learned by the ML model from production data</span>
