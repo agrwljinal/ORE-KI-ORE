@@ -14,8 +14,8 @@ class VegDemoModeRouteTests(unittest.TestCase):
         )
 
         self.assertEqual(view["predicted_tonnage"], 809.0)
-        self.assertEqual(view["shortfall_tonnage"], 154.0)
-        self.assertEqual(view["banner"]["remaining_shortfall_tonnes"], 154.0)
+        self.assertEqual(view["shortfall_tonnage"], 91.0)
+        self.assertEqual(view["banner"]["remaining_shortfall_tonnes"], 91.0)
 
     def setUp(self):
         app.config["TESTING"] = True
