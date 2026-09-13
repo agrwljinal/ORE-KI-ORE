@@ -1355,13 +1355,7 @@ function deriveBannerState(predicted, target, recovered, planExecuted, mitigatio
     simState = planExecuted || mitigationCount > 0 ? "MITIGATING" : "UNMITIGATED RISK";
   }
   const gap = effective - tgt;
-  const rate = 3808.49; // MN rate ₹/ton (kept in sync for the live preview only)
-  if (gap < 0) {
-    return { tier, bannerClass, headline, simState, gap, shortfall: Math.max(0, -gap),
-      ledgerLabel: "Rupee Loss Ledger", ledgerAmount: -gap * rate, ledgerClass: "text-red" };
-  }
-  return { tier, bannerClass, headline, simState, gap, shortfall: 0,
-    ledgerLabel: "Rupee Gain Ledger", ledgerAmount: gap * rate, ledgerClass: "text-green" };
+  return { tier, bannerClass, headline, simState, gap, shortfall: Math.max(0, -gap) };
 }
 
 function applyBannerState(state) {
@@ -1375,12 +1369,14 @@ function applyBannerState(state) {
     label.textContent = state.headline +
       (state.shortfall > 0 ? `: ${fmtNum(state.shortfall)} MT DEFICIT PREDICTED` : "");
   }
-  const ledgerLabel = document.getElementById("hero-loss-label");
-  if (ledgerLabel) ledgerLabel.textContent = state.ledgerLabel;
-  const ledgerVal = document.getElementById("hero-loss-val");
-  if (ledgerVal) {
-    ledgerVal.textContent = `₹${fmtNum(state.ledgerAmount / 1e7, 2)} Cr`;
-    ledgerVal.className = `hero-sub-value ${state.ledgerClass}`;
+  if (state.ledgerLabel !== undefined && state.ledgerAmount !== undefined) {
+    const ledgerLabel = document.getElementById("hero-loss-label");
+    if (ledgerLabel) ledgerLabel.textContent = state.ledgerLabel;
+    const ledgerVal = document.getElementById("hero-loss-val");
+    if (ledgerVal) {
+      ledgerVal.textContent = `₹${fmtNum(state.ledgerAmount / 1e7, 2)} Cr`;
+      ledgerVal.className = `hero-sub-value ${state.ledgerClass || "text-red"}`;
+    }
   }
   const sim = document.getElementById("hero-sim-state");
   if (sim) sim.textContent = state.simState;

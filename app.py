@@ -541,6 +541,15 @@ def _build_prescriptive_response(raw_pred, recs, plan_result=None):
         plan_executed=SYSTEM_STATE["plan_executed"],
         mitigation_counts=1 if SYSTEM_STATE["plan_executed"] else 0,
     )
+    # The flat-rate ₹ fields inside derive_banner_state() (gap ×
+    # MN_COST/PRICE_PER_TON_INR) must never be sent to the frontend. The
+    # contract-aware customer ledger (customer_portfolio / customer_impact)
+    # is the only ₹ figure this endpoint serves, so the flat-rate keys are
+    # stripped from the banner payload too.
+    banner = {
+        key: value for key, value in state.items()
+        if key not in ("ledger_label", "ledger_amount_inr", "ledger_crores", "ledger_class")
+    }
     response = {
         "status": "success",
         "plan_executed": SYSTEM_STATE["plan_executed"],
@@ -551,13 +560,9 @@ def _build_prescriptive_response(raw_pred, recs, plan_result=None):
         "recovered_tonnage": recovered,
         "remaining_shortfall": remaining,
         "total_rec_gain": total_rec_gain,
-        "banner": state,
+        "banner": banner,
         "headline": state["headline"],
         "banner_class": state["banner_class"],
-        "ledger_label": state["ledger_label"],
-        "ledger_amount_inr": state["ledger_amount_inr"],
-        "ledger_crores": state["ledger_crores"],
-        "ledger_class": state["ledger_class"],
         "customer_portfolio": customer_after,
         "customer_impact": {
             "liability_avoided_inr": round(
