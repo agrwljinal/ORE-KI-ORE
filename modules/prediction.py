@@ -18,7 +18,7 @@ def _load_model():
             with open(_MODEL_PATH, "rb") as handle:
                 bundle = pickle.load(handle)
             if bundle.get("target") != "actual_rom_tonnes":
-                raise ValueError("model target must be actual_rom_tonnes; run the v4 trainer")
+                raise ValueError("model target must be actual_rom_tonnes; run scripts/train_shortfall_model.py")
             _model = bundle
         except Exception as exc:  # Never let a model-load issue take down the dashboard.
             _model_error = f"{type(exc).__name__}: {exc}"
@@ -40,25 +40,57 @@ def _feature_values(rainfall_mm, soil_moisture_pct, equipment_downtime_hours,
                     blast_delay_minutes, mine_name, rain_3d_mm=None,
                     rain_7d_mm=None, soil_moisture_3d_avg=None,
                     soil_moisture_7d_avg=None):
+    """Build the normalised ML feature vector from slider values.
+
+    Only features present in the loaded model's ``feature_order`` are included
+    in the returned ``values`` dict.  This keeps the function backward-compatible
+    with v4 models (which used soil 3d/7d) while correctly supporting the v5
+    model that dropped them and added ``rain_x_downtime``.
+    """
     model = _load_model()
     if model is None:
         return None
-    values = {
-        "rainfall_mm": max(0.0, float(rainfall_mm)),
-        "rain_3d_mm": max(0.0, float(rain_3d_mm if rain_3d_mm is not None else rainfall_mm)),
-        "rain_7d_mm": max(0.0, float(rain_7d_mm if rain_7d_mm is not None else rainfall_mm)),
-        "soil_moisture_pct": max(0.0, float(soil_moisture_pct)),
-        "soil_moisture_3d_avg": max(0.0, float(soil_moisture_3d_avg if soil_moisture_3d_avg is not None else soil_moisture_pct)),
-        "soil_moisture_7d_avg": max(0.0, float(soil_moisture_7d_avg if soil_moisture_7d_avg is not None else soil_moisture_pct)),
-        "equipment_downtime_hours": max(0.0, float(equipment_downtime_hours)),
-        "blast_delay_minutes": max(0.0, float(blast_delay_minutes)),
-    }
+    feature_order = model.get("feature_order", [])
+    values: dict[str, float] = {}
+    raw: dict[str, float] = {}
+
+    def _add(key: str, val: float, raw_val: float | None = None):
+        if key in feature_order:
+            values[key] = val
+            raw[key] = raw_val if raw_val is not None else val
+
+    r = max(0.0, float(rainfall_mm))
+    s = max(0.0, float(soil_moisture_pct))
+    d = max(0.0, float(equipment_downtime_hours))
+    b = max(0.0, float(blast_delay_minutes))
+
+    _add("rainfall_mm", r, r)
+    _add("rain_3d_mm", max(0.0, float(rain_3d_mm if rain_3d_mm is not None else rainfall_mm)))
+    _add("rain_7d_mm", max(0.0, float(rain_7d_mm if rain_7d_mm is not None else rainfall_mm)))
+    _add("soil_moisture_pct", s, s)
+    _add("equipment_downtime_hours", d, d)
+    _add("blast_delay_minutes", b, b)
+
+    # v4 backward-compat (only if the loaded model uses them)
+    _add("soil_moisture_3d_avg",
+         max(0.0, float(soil_moisture_3d_avg if soil_moisture_3d_avg is not None else soil_moisture_pct)))
+    _add("soil_moisture_7d_avg",
+         max(0.0, float(soil_moisture_7d_avg if soil_moisture_7d_avg is not None else soil_moisture_pct)))
+
+    # Engineered interaction: rain x downtime compounding (v5+)
+    if "rain_x_downtime" in feature_order:
+        values["rain_x_downtime"] = r * d
+        raw["rain_x_downtime"] = r * d
+
     caps = model["numeric_feature_caps"]
-    vector = {name: min(value / max(float(caps[name]), 1.0), 1.5) for name, value in values.items()}
+    if model.get("feature_scaling") == "raw":
+        vector = {name: value for name, value in values.items()}
+    else:
+        vector = {name: min(value / max(float(caps[name]), 1.0), 1.5) for name, value in values.items()}
     selected_mine = mine_name if mine_name in model["mine_list"] else model["baseline_mine"]
     for mine in model["mine_list"][1:]:
         vector[f"mine_{mine}"] = 1.0 if selected_mine == mine else 0.0
-    return vector, values, selected_mine
+    return vector, raw, selected_mine
 
 
 def predict_actual_rom_output(*, rainfall_mm, soil_moisture_pct, equipment_downtime_hours,
@@ -84,7 +116,7 @@ def predict_shortfall_with_model(base_target, rainfall_mm, soil_moisture_pct,
                                  labor_drop_pct, mine_name=None, ore_grade="STD",
                                  rain_3d_mm=None, rain_7d_mm=None,
                                  soil_moisture_3d_avg=None, soil_moisture_7d_avg=None):
-    """ML output × manual factors; target is used only for downstream shortfall."""
+    """ML output x manual factors; target is used only for downstream shortfall."""
     ml_output, raw, selected_mine, model = predict_actual_rom_output(
         rainfall_mm=rainfall_mm, soil_moisture_pct=soil_moisture_pct,
         equipment_downtime_hours=equipment_downtime_hours,

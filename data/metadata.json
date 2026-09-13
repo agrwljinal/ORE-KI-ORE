@@ -31,6 +31,39 @@
     "honesty_note": "Soil-moisture values are synthetic demo data only. They must be swapped for a real satellite product (e.g. NASA SMAP or ISRO Bhuvan) before deployment.",
     "model_mapping": "scripts/train_shortfall_model.py NUMERIC_FEATURES includes soil_moisture_pct, soil_moisture_3d_avg, soil_moisture_7d_avg; modules/prediction.py feeds the same columns into predict_actual_rom_output."
   },
+  "v5_update": {
+    "purpose": "Rebuild the production dataset with a threshold/piecewise rainfall penalty, rain-driven downtime and blast-delay causality (chain reaction), and a single soil-moisture feature so the shortfall model reflects realistic monsoon operational behaviour.",
+    "generator": "Downloads/FINAL_DATASET101/generate_v5.py -> processed_production_v5.csv (copied into data/)",
+    "rows": 7665,
+    "mines": ["Balaghat", "Chikla", "Dongri Buzurg", "Gumgaon", "Kandri", "Tirodi", "Ukwa"],
+    "changes_vs_v4": [
+      "rainfall penalty is piecewise/threshold: 0 below 40mm/day, ramping 40-100mm, sharp up to ~36% above 100mm (monsoon-shutdown-like)",
+      "equipment_downtime_hours and blast_delay_minutes are PARTIALLY CAUSED by rainfall (chain reaction) plus their own independent random component",
+      "soil_moisture_pct retained; soil_moisture_3d_avg / soil_moisture_7d_avg dropped (VIF 45-141 in v4)",
+      "monthlyTarget / target_rom_tonnes are dashboard scenario inputs, never model features"
+    ],
+    "base_capacity_anchor": "mine-level base capacities calibrated from MOIL annual report figures (annual production / 365 / mine share); the only literature-anchored numbers",
+    "model_mapping": "scripts/train_shortfall_model.py trains on data/processed_production_v5.csv; modules/prediction.py builds rain_x_downtime at inference time",
+    "honesty_note": "Weather/ops coefficients remain documented synthetic design choices (no public per-mine daily dataset exists); replace synthetic rainfall with IMD and operational records with MOIL data before deployment."
+  },
+  "interaction_update": {
+    "purpose": "Add the engineered rain_x_downtime = rainfall_mm x equipment_downtime_hours interaction to the direct-ROM OLS so compounding of heavy rain WITH prolonged equipment downtime is captured beyond the additive main effects.",
+    "decision": "rain_x_downtime is significant (p = 0.0001) and retained; the other two candidate interactions (rain_x_blast, soil_x_downtime) were tested and dropped as not significant.",
+    "features": ["rainfall_mm", "rain_3d_mm", "rain_7d_mm", "soil_moisture_pct", "equipment_downtime_hours", "blast_delay_minutes", "rain_x_downtime", "mine dummies"],
+    "target": "actual_rom_tonnes",
+    "scaling": "raw (OLS fit on unnormalised features; numeric_feature_caps kept only for dashboard stress/penalty display)",
+    "verification": {
+      "test_r2": 0.9908,
+      "test_rmse_tonnes": 25.27,
+      "test_mae_tonnes": 18.41,
+      "n_train": 6132,
+      "n_test": 1533,
+      "default_sliders": "rainfall 88.5, soil 38, downtime 6, blast 45, labor 18, Balaghat, target 900",
+      "ml_predicted_output": 744.17,
+      "predicted_tonnage": 683.89,
+      "shortfall_tonnage": 216.11
+    }
+  },
   "validation": {
     "geology_rows": 500,
     "geology_mines": 7,
