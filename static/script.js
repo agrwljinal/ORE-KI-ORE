@@ -1515,14 +1515,12 @@ function renderDeadlineTimeline(contracts, dailyForecast, actualRegression) {
   now.textContent = "TODAY";
   timeline.appendChild(track);
   timeline.appendChild(now);
-  const maxDays = Math.max(1, ...contracts.map((contract) => Math.max(0, Number(contract.days_to_deadline) || 0)));
-  contracts.forEach((contract, index) => {
+  timeline.style.setProperty("--marker-count", String(contracts.length));
+  contracts.forEach((contract) => {
     const days = Number(contract.days_to_deadline) || 0;
     const status = String(contract.delivery_status || "ON_TRACK").toLowerCase().replace("_", "-");
     const marker = document.createElement("div");
     marker.className = `deadline-marker ${status}`;
-    const position = Math.min(91, Math.max(11, 11 + (Math.max(0, days) / maxDays) * 80 + (index % 2) * 1.5));
-    marker.style.left = `${position}%`;
     const card = document.createElement("div");
     card.className = "deadline-marker-card";
     const title = document.createElement("div");
