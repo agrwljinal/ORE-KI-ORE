@@ -6,6 +6,9 @@
   var autoSyncTimer = null;
   var rainLocked = false;
   var lastRainfallValue = 88.5;
+  var rainfallCouplingHintShown = false;
+  var manuallyOverridden = {};
+  var applyingCoupling = false;
 
   function $(id) {
     return document.getElementById(id);
@@ -167,6 +170,74 @@
     }
   }
 
+  function rainPenaltyFrac(rain) {
+    rain = Math.max(0, Number(rain) || 0);
+    if (rain <= 40) return 0.0;
+    if (rain <= 100) return 0.06 * (rain - 40) / 60.0;
+    return 0.06 + 0.30 * (Math.min(rain - 100, 150) / 150.0);
+  }
+
+  function snapToStep(value, el) {
+    var min = parseFloat(el.min), max = parseFloat(el.max), step = parseFloat(el.step) || 1;
+    value = Math.round(value / step) * step;
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function couplingHintShownFor() {
+    if (rainfallCouplingHintShown) return;
+    rainfallCouplingHintShown = true;
+    var hint = $("rainfall-coupling-hint");
+    if (hint) hint.style.display = "";
+  }
+
+  function applyCoupledSuggestions(rain) {
+    var r = Math.max(0, Number(rain) || 0);
+    var soilEl = $("slider-soil-moisture");
+    var downtimeEl = $("slider-downtime");
+    var blastEl = $("slider-blast-delay");
+    var changed = [];
+    applyingCoupling = true;
+    try {
+      if (soilEl && !manuallyOverridden.soil) {
+        // UI-only heuristic for visual slider differentiation — does not match
+        // generate_v5.py's actual day-over-day recurrence formula, which saturates
+        // faster. Prediction model always uses whatever slider value is actually set.
+        soilEl.value = snapToStep(3 + 57 * Math.pow(r / 250, 0.6), soilEl);
+        changed.push(soilEl);
+      }
+      var rp = rainPenaltyFrac(r);
+      if (downtimeEl && !manuallyOverridden.downtime) {
+        downtimeEl.value = snapToStep(rp * 14, downtimeEl);
+        changed.push(downtimeEl);
+      }
+      if (blastEl && !manuallyOverridden.blast) {
+        blastEl.value = snapToStep(rp * 180, blastEl);
+        changed.push(blastEl);
+      }
+    } finally {
+      applyingCoupling = false;
+    }
+    // Route through the existing slider change listeners (the 350ms weather
+    // debounce and the dashboard's own refresh) — no extra fetch code here.
+    if (changed.length) {
+      applyingCoupling = true;
+      try {
+        changed.forEach(function (el) { el.dispatchEvent(new Event("change", { bubbles: true })); });
+      } finally {
+        applyingCoupling = false;
+      }
+    }
+  }
+
+  function resetRainfallCoupling() {
+    manuallyOverridden = {};
+    var el = $("slider-rainfall");
+    if (el && !rainLocked) {
+      var value = parseFloat(el.value);
+      if (!isNaN(value)) applyCoupledSuggestions(value);
+    }
+  }
+
   function bind() {
     var button = $("sync-weather-btn");
     if (button) button.addEventListener("click", syncWeatherNow);
@@ -215,6 +286,37 @@
       guardSlider.addEventListener("input", guardRain);
       guardSlider.addEventListener("change", guardRain);
     }
+
+    // Rainfall-driven slider coupling (manual mode only, i.e. auto-sync OFF).
+    // Gated on the teammate's rainLocked state — never runs while sync is ON.
+    var coupledRainfall = $("slider-rainfall");
+    if (coupledRainfall) {
+      coupledRainfall.addEventListener("input", function () {
+        if (rainLocked) return;
+        var value = parseFloat(coupledRainfall.value);
+        if (isNaN(value)) return;
+        applyCoupledSuggestions(value);
+        couplingHintShownFor();
+      });
+    }
+
+    // Edits stick: once the user moves a coupled slider themselves, later
+    // rainfall changes skip that slider until Reset Simulation clears it.
+    ["soil", "downtime", "blast"].forEach(function (key) {
+      var id = key === "soil" ? "slider-soil-moisture"
+        : key === "downtime" ? "slider-downtime" : "slider-blast-delay";
+      var el = $(id);
+      if (!el) return;
+      var markManual = function () {
+        if (applyingCoupling) return;
+        manuallyOverridden[key] = true;
+      };
+      el.addEventListener("input", markManual);
+      el.addEventListener("change", markManual);
+    });
+
+    var resetPlanBtn = $("btn-reset-plan");
+    if (resetPlanBtn) resetPlanBtn.addEventListener("click", resetRainfallCoupling);
 
     var debounce = null;
     ["slider-rainfall", "slider-soil-moisture", "slider-downtime", "slider-blast-delay", "input-target"].forEach(function (id) {
