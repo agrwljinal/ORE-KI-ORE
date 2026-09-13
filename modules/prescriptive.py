@@ -161,6 +161,10 @@ def _derive_operating_signals(prediction: Optional[Dict[str, Any]],
         rain_penalty = penalties.get("rain")
         if rain_penalty is not None:
             if _uses_model_penalty_scale:
+                # Legacy inverse fallback - unreachable in current wiring since app.py
+                # always supplies live rainfall/downtime/labor directly (app.py:365, 721, 746).
+                # Predates v5 caps and was already stale under v4; kept only for defensive
+                # fallback if those keys are ever absent.
                 # Model convention: rain_penalty = min(mm/100, 1); mm capped at 100.
                 rainfall_mm = min(max(float(rain_penalty), 0.0), 1.0) * 100.0
                 assumptions.append(
@@ -193,6 +197,10 @@ def _derive_operating_signals(prediction: Optional[Dict[str, Any]],
         if _uses_model_penalty_scale:
             equip_penalty = penalties.get("equipment")
             if equip_penalty is not None:
+                # Legacy inverse fallback - unreachable in current wiring since app.py
+                # always supplies live rainfall/downtime/labor directly (app.py:365, 721, 746).
+                # Predates v5 caps and was already stale under v4; kept only for defensive
+                # fallback if those keys are ever absent.
                 # Model convention: equipment_downtime_hours = min(12, (150-mtbf)/150*12)
                 # with the penalty normalised by /14. Invert both in one step and
                 # clamp to the model's 12-hr downtime ceiling.
@@ -233,6 +241,10 @@ def _derive_operating_signals(prediction: Optional[Dict[str, Any]],
         labor_penalty = penalties.get("labor")
         if labor_penalty is not None:
             if _uses_model_penalty_scale:
+                # Legacy inverse fallback - unreachable in current wiring since app.py
+                # always supplies live rainfall/downtime/labor directly (app.py:365, 721, 746).
+                # Predates v5 caps and was already stale under v4; kept only for defensive
+                # fallback if those keys are ever absent.
                 # Model convention: labor_penalty = min(labor_drop_pct/100, 1)
                 labor_drop_pct = min(max(float(labor_penalty), 0.0), 1.0) * 100.0
                 assumptions.append(
