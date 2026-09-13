@@ -7,3 +7,4 @@ plotly
 folium
 streamlit-folium
 scikit-learn
+shapely
