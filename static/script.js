@@ -1313,7 +1313,15 @@ function updateControlBadges(controls) {
 
 function updateClock() {
   const el = document.getElementById("system-time");
-  if (el) el.textContent = `${new Date().toISOString().slice(11, 19)} UTC`;
+  if (el) {
+    el.textContent = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Kolkata",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).format(new Date()) + " IST";
+  }
 }
 
 function setButtonsLoading(loading) {
@@ -2797,7 +2805,15 @@ async function loadTelemetry() {
     renderPitGrid(data.ore_pockets || []);
     const t = new Date(data.system_timestamp);
     const clock = document.getElementById("system-time");
-    if (clock && !isNaN(t.getTime())) clock.textContent = t.toISOString().substr(11, 8) + " UTC";
+    if (clock && !isNaN(t.getTime())) {
+      clock.textContent = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }).format(t) + " IST";
+    }
     initMap(data.center);
 
     // Dots need their zone's prospectivity band to pick the right colour, so
