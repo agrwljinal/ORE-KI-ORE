@@ -200,12 +200,14 @@ CANDIDATE_ZONES = [
         "operational_status": "Anomaly",
         "water_depth_m": 0.8,
         "pumps_active": 1,
-        # High spectral - CONFIRMED (pulsing green ring). Balanced chip sits
-        # between the flooded red zone (green-dominant) and the operational
-        # green zones (brown-dominant): about half green, half brown, with
-        # enough exposed surface to yield a real, zone-specific score.
+        # Mid spectral - WEAK (amber dashed ring), below the two high green
+        # zones. Exposed surface shape (slightly B04-heavy) keeps the split
+        # pixel chip between the flooded red zone (green-dominant) and the
+        # operational green zones (brown-dominant), with enough exposed
+        # surface to yield a real, zone-specific score.
         "linked_geology_record_id": "GEO-000055",
-        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.45, "water_fraction": 0.10},
+        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.45, "water_fraction": 0.10,
+                       "exposed_reflectance": {"B04": 0.15, "B11": 0.10, "B12": 0.10}},
     },
     {
         "zone_id": "ZONE_D",
