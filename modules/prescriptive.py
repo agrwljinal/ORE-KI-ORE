@@ -45,8 +45,8 @@ def _get_model_bundle() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
 
 # Reference grade/price bands supplied for the hackathon concept. Used only
 # to attach illustrative "grade realization" context to the recommendation
-# for the Rupee Loss Ledger to optionally use — M4 never computes the final
-# ₹ figure itself.
+# for the Customer Contract Ledger to optionally use — M4 never computes the
+# final ₹ figure itself.
 _PROTOTYPE_GRADE_PRICE_BANDS = [
     {"min_grade_pct": 44.0, "price_per_tonne_inr": 47333.0, "label": "High-grade (~46% Mn)"},
     {"min_grade_pct": 34.0, "price_per_tonne_inr": 32100.0, "label": "Medium/low-grade (35–38% Mn)"},
@@ -640,7 +640,7 @@ def generate_recommendations(prediction: Optional[Dict[str, Any]], risk: Optiona
     Returns a UI-friendly dict, including "recoverable_tonnage" (kept for
     compatibility with the existing app.py integration), a structured
     "recommended" action card, a ranked "alternatives" list, grade-aware
-    context for the Rupee Loss Ledger, and an "assumptions" list documenting
+    context for the Customer Contract Ledger, and an "assumptions" list documenting
     every fallback used.
     """
     bundle, model_error = _get_model_bundle()
@@ -777,7 +777,7 @@ def generate_recommendations(prediction: Optional[Dict[str, Any]], risk: Optiona
         "recovery_status": "DELAYED_UNTIL_DEWATERING_COMPLETE" if primary["action"] == "DEWATERING" else "PENDING_EXECUTION",
         "is_simulated": True,
 
-        # --- Grade / pit context (for the Rupee Loss Ledger downstream) ---
+        # --- Grade / pit context (for the Customer Contract Ledger downstream) ---
         "source_pit": source_pocket["name"],
         "source_grade_pct": source_pocket.get("grade_pct"),
         "target_pit": target_pocket["name"] if target_pocket else None,
@@ -793,7 +793,8 @@ def generate_recommendations(prediction: Optional[Dict[str, Any]], risk: Optiona
             "source_price_reference_inr_per_tonne": source_price,
             "target_price_reference_inr_per_tonne": target_price,
             "note": "M4 supplies volume + grade context only. Final ₹ Revenue-at-Risk / Revenue-Saved "
-                    "calculation is owned by the Rupee Loss Ledger (modules/weather.py).",
+                    "calculation is owned by the Customer Contract Ledger "
+                    "(modules/customers.py / _customer_portfolio() in app.py).",
         },
 
         # --- Phased recovery context (Problem 3) ---
@@ -1087,7 +1088,8 @@ def calculate_selected_plan(plan_recommendation: Dict[str, Any],
     total_cost = sum(float(s.get("action_cost") or 0.0) for s in action_sequence)
     # Revenue uses the module's existing prototype grade-price reference
     # (source-pit band). No new/made-up market price is introduced here; the
-    # Rupee Loss Ledger (modules/weather.py) owns the final ₹ figure.
+    # Customer Contract Ledger (modules/customers.py / _customer_portfolio()
+    # in app.py) owns the final ₹ figure.
     revenue_saved = total_recovery * price_per_tonne
     net_benefit = revenue_saved - total_cost
 
@@ -1101,7 +1103,7 @@ def calculate_selected_plan(plan_recommendation: Dict[str, Any],
         "remaining shortfall is capped at that shortfall.",
         "action costs are prototype medians from the M4 prototype dataset, not official MOIL figures.",
         "revenue_saved = total expected recovery x prototype grade-price reference for the source pit; "
-        "final ₹ reckoning belongs to the Rupee Loss Ledger.",
+        "final ₹ reckoning belongs to the Customer Contract Ledger.",
     ]
     if bundle is None and model_error:
         assumptions.append(f"ML model unavailable ({model_error}); recovery used the rule-of-thumb fallback.")

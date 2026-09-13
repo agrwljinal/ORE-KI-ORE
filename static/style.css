@@ -576,7 +576,7 @@ label {
 }
 .pit-telemetry-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 10px;
     margin-bottom: 12px;
 }
@@ -586,6 +586,21 @@ label {
     border: 1px solid var(--border-color);
     border-radius: 5px;
     padding: 9px 12px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+.pit-box:hover {
+    border-color: #38BDF8;
+    background: rgba(56, 189, 248, 0.06);
+}
+.pit-box:focus-visible {
+    outline: 2px solid #38BDF8;
+    outline-offset: 2px;
+}
+.pit-box.pit-selected {
+    border-color: #38BDF8;
+    background: rgba(56, 189, 248, 0.1);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.25);
 }
 
 .pit-name {
@@ -610,29 +625,96 @@ label {
     margin-top: 2px;
 }
 
-/* Mandated Spectral Strip */
-.spec-compliance-card {
+/* Dynamic zone spectral card — rendered only while a zone is selected. */
+.spec-compliance-card.spectral-card {
     background: #0B1322;
-    border: 1px solid #1D4ED8;
+    border: 1px solid #1E293B;
     border-radius: 6px;
     padding: 10px 14px;
 }
 
-.spec-match-title {
+#spectral-card[hidden],
+#spectral-filled[hidden],
+#spectral-empty[hidden] { display: none; }
+
+/* Compact "select a zone" state — shown only when screening is ON. */
+.spectral-empty {
+    padding: 10px 8px 12px;
+    text-align: center;
+}
+.spectral-empty-title {
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 900;
+    letter-spacing: 0.6px;
     color: #38BDF8;
-    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+.spectral-empty-sub {
+    font-size: 11px;
+    color: #94A3B8;
+    margin-top: 6px;
+    line-height: 1.5;
 }
 
-.spec-meta-tags {
+.spectral-filled {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.spectral-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.spectral-head-score {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    flex: none;
+    padding-right: 16px;
+    border-right: 1px dashed #334155;
+}
+.spectral-pct {
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1;
+    color: #F8FAFC;
+    letter-spacing: -0.5px;
+}
+.spectral-pct-unit {
+    font-size: 15px;
+    font-weight: 900;
+    color: #38BDF8;
+}
+.spectral-head-copy {
+    min-width: 0;
+}
+.spectral-title {
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    color: #38BDF8;
+}
+.spectral-zone {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #F1F5F9;
+    margin-top: 2px;
+}
+.spectral-tier {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    margin-top: 3px;
+}
+
+.spectral-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 6px;
 }
-
-.spec-tag {
+.spectral-tags .spec-tag {
     background: #172554;
     color: #93C5FD;
     font-size: 9.5px;
@@ -642,18 +724,115 @@ label {
     border: 1px solid #1E40AF;
 }
 
-.spec-chart-container {
-    margin-top: 8px;
-    background: #070B12;
-    border: 1px solid #1E293B;
-    border-radius: 4px;
-    padding: 6px;
+.spectral-desc {
+    font-size: 11px;
+    color: #CBD5E1;
+    line-height: 1.5;
 }
 
-#spectralCanvas {
+.spectral-chart {
+    position: relative;
+    background: #070B12;
+    border: 1px solid #1E293B;
+    border-radius: 5px;
+    padding: 8px 10px 4px;
+}
+.spectral-chart-title {
+    font-size: 9.5px;
+    font-weight: 900;
+    letter-spacing: 0.8px;
+    color: #64748B;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.spectral-svg {
     width: 100%;
-    height: 65px;
+    height: auto;
     display: block;
+}
+.sig-hit { fill: transparent; }
+.sig-pt { cursor: pointer; }
+.sig-pt:hover { r: 5; stroke-width: 2.6; }
+
+/* Dark cursor-following tooltip for the interactive signature graph. */
+#sig-tooltip[hidden] { display: none; }
+#sig-tooltip {
+    position: absolute;
+    z-index: 60;
+    min-width: 190px;
+    max-width: 230px;
+    pointer-events: none;
+    background: rgba(4, 10, 21, 0.97);
+    border: 1px solid #26334F;
+    border-radius: 8px;
+    padding: 8px 10px;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.6);
+}
+.sig-tip-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+    padding-bottom: 4px;
+    border-bottom: 1px dashed #26334F;
+}
+.sig-tip-band { font-size: 11px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.4px; }
+.sig-tip-nm { font-size: 9.5px; font-weight: 700; color: #38BDF8; }
+.sig-tip-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 10px;
+    color: #CBD5E1;
+    padding: 2px 0;
+}
+.sig-tip-row strong { margin-left: auto; color: #F8FAFC; font-weight: 800; }
+.sig-tip-note { font-size: 8px; color: #64748B; font-style: italic; margin-top: 4px; }
+.sig-swatch {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.spectral-chart-legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 4px;
+    justify-content: center;
+    font-size: 9.5px;
+    color: #94A3B8;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+.chart-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.legend-line-line {
+    display: inline-block;
+    width: 18px;
+    height: 0;
+    border-top: 2px solid;
+}
+.legend-line-line.zone { border-color: #22D3EE; }
+.legend-line-line.ref  { border-color: #A78BFA; }
+
+.spectral-provenance {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #64748B;
+    text-transform: uppercase;
+}
+.spectral-footnote {
+    font-size: 9.5px;
+    color: #64748B;
+    font-style: italic;
+    border-top: 1px dashed #1E293B;
+    padding-top: 5px;
 }
 
 /* XAI Progress Rows */
@@ -821,11 +1000,15 @@ label {
   border: 1px solid #1E293B;
   border-radius: 6px;
   padding: 14px 16px;
-  min-height: 330px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 .zone-inspector {
+  /* Information popup: floats as an overlay on the map (right side), so
+     clicking a zone shows the intelligence panel without pushing the map.
+     The spectral graph card (#spectral-card) is a SEPARATE in-flow block
+     that stays below the map. */
   position: absolute;
   top: 64px;
   right: 28px;
@@ -844,23 +1027,28 @@ label {
   transition: max-height 0.35s ease, opacity 0.25s ease, transform 0.35s ease, margin 0.35s ease, padding 0.35s ease;
 }
 .zone-inspector.is-open {
-  max-height: 900px;
+  max-height: min(780px, calc(100vh - 70px));
   padding-top: 14px;
   padding-bottom: 14px;
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
+  overflow-y: auto;
 }
 .zone-panel-close {
+  flex: none;
   width: 28px; height: 28px; border: 1px solid #334155; border-radius: 4px;
-  background: #111827; color: #94A3B8; font-size: 22px; line-height: 1;
+  background: #111827; color: #94A3B8; font-size: 20px; line-height: 1;
   cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
 }
 .zone-panel-close:hover { color: #F8FAFC; border-color: #38BDF8; }
-.zone-inspector-meta { display: flex; gap: 14px; flex-wrap: wrap; color: #94A3B8; font: 11px monospace; margin-bottom: 12px; }
-.zone-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.zone-inspector-section { background: #080E19; border: 1px solid #1E293B; border-radius: 5px; padding: 10px; }
-.zone-inspector-section-title { color: #38BDF8; font-size: 10px; font-weight: 900; letter-spacing: 0.7px; text-transform: uppercase; margin-bottom: 8px; }
+.zone-inspector-meta { display: flex; gap: 12px; flex-wrap: wrap; color: #94A3B8; font: 11px monospace; margin-bottom: 8px; }
+.zone-inspector-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.zone-inspector-section { background: #080E19; border: 1px solid #1E293B; border-radius: 5px; padding: 8px 10px; }
+.zone-inspector-section[hidden] { display: none; }
+.zone-inspector-section-title { color: #38BDF8; font-size: 10px; font-weight: 900; letter-spacing: 0.7px; text-transform: uppercase; margin-bottom: 6px; }
 .zone-detail-list { display: grid; gap: 6px; }
 .zone-detail-list div { display: flex; justify-content: space-between; gap: 10px; font-size: 10.5px; }
 .zone-detail-list span { color: #64748B; }
@@ -873,9 +1061,19 @@ label {
 .zone-fingerprint .band-row { margin-top: 5px; }
 .zone-fingerprint .band-label { font-size: 9px; }
 .zone-fingerprint .band-values { font-size: 9px; }
-.zone-inspector-final { border-color: #10B981; box-shadow: 0 0 10px rgba(16,185,129,0.1); }
-.zone-inspector-final-score strong { color: #10B981; font-size: 28px; }
-.zone-inspector-action { color: #FCD34D; font-size: 11px; line-height: 1.45; margin-top: 8px; }
+.zone-inspector-final { grid-column: 1 / -1; border-color: #334155; box-shadow: none; }
+.zone-inspector-final-score strong { color: #38BDF8; font-size: 30px; }
+.zone-inspector-final-score span { font-size: 12px; }
+.zone-final-top { display: flex; align-items: center; gap: 20px; }
+.zone-inspector-decision { flex: 1; min-width: 0; }
+.zone-inspector-decision-label { font-size: 9px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; color: #94A3B8; }
+.zone-inspector-decision-body { font-size: 12.5px; font-weight: 800; color: #FCD34D; margin-top: 3px; line-height: 1.4; }
+.zone-inspector-why {
+  display: flex; gap: 8px; align-items: baseline;
+  margin-top: 8px; padding-top: 7px; border-top: 1px dashed #1E293B;
+}
+.zone-inspector-why-kicker { font-size: 9px; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; color: #A78BFA; flex: none; }
+.zone-inspector-why-body { font-size: 11px; color: #CBD5E1; line-height: 1.5; }
 @media (max-width: 700px) { .zone-inspector-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) {
   .zone-inspector { top: 56px; right: 10px; width: calc(100% - 20px); }
@@ -900,7 +1098,15 @@ label {
 .legend-med  { background: rgba(245,158,11,0.15); color:#FBBF24; border-color:#FBBF24;}
 .legend-low  { background: rgba(248,113,113,0.15); color:#F87171; border-color:#F87171;}
 
-.zone-panel-header { border-bottom: 1px solid #1E293B; padding-bottom: 8px; margin-bottom: 12px;}
+.zone-panel-header {
+  border-bottom: 1px solid #1E293B;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 .zone-panel-title  { font-size: 15px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.5px;}
 .zone-panel-subtitle { font-size: 10.5px; color: #64748B; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.6px;}
 
@@ -942,11 +1148,30 @@ label {
 }
 
 /* Telemetry markers */
-.telemetry-marker { background: transparent !important; border: none !important;}
+.telemetry-marker { background: transparent !important; border: none !important; }
 .telemetry-dot {
-  width: 22px; height: 22px; background: #F59E0B; color: #000; border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; box-shadow: 0 0 10px rgba(245,158,11,0.6); font-weight: 900;
+  position: relative;
+  width: 18px; height: 18px;
+  background: var(--dot-color, #F59E0B);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-radius: 50%;
+  box-shadow: 0 0 10px 1px var(--dot-glow, rgba(245, 158, 11, 0.6));
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.telemetry-dot:hover { transform: scale(1.18); }
+.telemetry-dot.monitor-selected {
+  transform: scale(1.35);
+  box-shadow: 0 0 16px 3px var(--dot-glow, rgba(245, 158, 11, 0.6)), 0 0 30px 8px var(--dot-glow, rgba(245, 158, 11, 0.6));
+}
+.telemetry-dot.monitor-selected::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dot-color, #F59E0B);
+  opacity: 0.85;
 }
 
 /* ============ SPECTRAL CONFIRMATION OVERLAY (rings + badges) ============ */
@@ -1474,33 +1699,34 @@ label {
    synthetic surface renderer and surface-filter panel.
    ============================================================ */
 
-/* --- Glowing priority markers (translucent orbs with pulse) --- */
+/* --- Clean circular glowing monitoring points (pin colour = operational
+       status, permanent). FLOODED red / SPECTRAL ANOMALY orange / OPERATIONAL
+       green. Hover, selection, screening and zoom never re-colour the pin:
+       only the outline/glow intensity changes, never the hue. --- */
 .zone-orb {
   position: relative;
   border-radius: 50%;
   box-shadow:
-    0 0 12px 2px var(--zone-glow),
-    0 0 26px 6px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.55);
-  background: radial-gradient(circle at 36% 32%, rgba(255, 255, 255, 0.95) 0%, var(--zone-color) 38%, rgba(0, 0, 0, 0.0) 100%);
-  opacity: 0.92;
-  animation: zone-orb-pulse 2.6s ease-in-out infinite;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+    0 0 0 2px rgba(255, 255, 255, 0.22),
+    0 0 10px 1px var(--zone-glow),
+    0 0 22px 5px var(--zone-glow);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.55) 0%, var(--zone-color) 30%, var(--zone-color) 100%);
+  animation: zone-orb-pulse 2.8s ease-in-out infinite;
+  transition: box-shadow 0.3s ease;
   cursor: pointer;
 }
-.zone-orb:hover { transform: scale(1.18); }
+/* The selected pin keeps its exact colour — a neutral white outline ring is
+   the only visual cue, so nobody can misread selection as a status change. */
 .zone-orb.zone-selected {
-  transform: scale(1.3);
-  opacity: 1;
   box-shadow:
-    0 0 16px 3px var(--zone-glow),
-    0 0 44px 12px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.7);
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 0 12px 2px var(--zone-glow),
+    0 0 28px 7px var(--zone-glow);
   animation: zone-orb-pulse 1.4s ease-in-out infinite;
 }
 @keyframes zone-orb-pulse {
-  0%, 100% { box-shadow: 0 0 10px 1px var(--zone-glow), inset 0 0 6px 1px rgba(255,255,255,0.4); }
-  50%      { box-shadow: 0 0 22px 6px var(--zone-glow), inset 0 0 10px 3px rgba(255,255,255,0.7); }
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 0 8px 1px var(--zone-glow), 0 0 18px 4px var(--zone-glow); }
+  50%      { box-shadow: 0 0 0 2px rgba(255,255,255,0.22), 0 0 14px 3px var(--zone-glow), 0 0 30px 8px var(--zone-glow); }
 }
 
 /* Soft expanding halo ring behind the orb (subtle pulse). */
@@ -1515,10 +1741,6 @@ label {
   0%   { transform: scale(0.25); opacity: 0.7; }
   100% { transform: scale(1.6);  opacity: 0;   }
 }
-
-/* Dim other zones when one is selected. */
-.zone-orb.zone-dimmable { opacity: 0.45; }
-.zone-orb.zone-dimmable:hover { opacity: 0.9; }
 
 /* --- Energy halos (spectral screening reveal) --- */
 .energy-halo {
@@ -1822,10 +2044,9 @@ label {
 }
 .map-light-mode .zone-orb {
   box-shadow:
-    0 0 0 2px rgba(8, 16, 32, 0.30),
-    0 0 12px 2px var(--zone-glow),
-    0 0 26px 7px var(--zone-glow),
-    inset 0 0 8px 2px rgba(255, 255, 255, 0.6);
+    0 0 0 2px rgba(8, 16, 32, 0.35),
+    0 0 10px 1px var(--zone-glow),
+    0 0 24px 6px var(--zone-glow);
 }
 .map-light-mode .zone-ring { box-shadow: 0 0 10px 2px rgba(8, 16, 32, 0.25); }
 .map-light-mode .halo-label {
@@ -1836,6 +2057,303 @@ label {
 .map-light-mode .zone-surface-overlay {
   box-shadow: 0 0 26px rgba(0, 80, 160, 0.35);
 }
+
+/* ============ SPACE-ASSISTED POSITIONING TAG ============ */
+.space-assist-tag {
+  font-size: 8px; font-weight: 900; letter-spacing: 1.1px; text-transform: uppercase;
+  color: #38BDF8; border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(14, 116, 214, 0.12); border-radius: 999px;
+  padding: 2px 8px; margin-left: 8px; vertical-align: middle;
+}
+
+/* ============ EXPANDED MAP MODAL ============ */
+.map-frame-wrap { position: relative; margin-bottom: 12px; }
+
+.map-expand-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 1000;
+  background: rgba(4, 10, 21, 0.82); color: #E2E8F0;
+  border: 1px solid rgba(148, 163, 184, 0.45); border-radius: 6px;
+  font-size: 9px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase;
+  padding: 5px 10px; cursor: pointer;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.map-expand-btn:hover { background: rgba(12, 74, 110, 0.9); color: #FFFFFF; border-color: #38BDF8; }
+.map-expand-btn:focus-visible { outline: 2px solid #38BDF8; outline-offset: 2px; }
+
+.map-legend {
+  position: absolute; left: 10px; bottom: 10px; z-index: 1000;
+  pointer-events: none; background: rgba(4, 10, 21, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.38); border-radius: 8px;
+  padding: 7px 10px; display: flex; flex-direction: column; gap: 4px;
+  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  min-width: 180px;
+}
+.map-legend-title {
+  font-size: 8px; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
+  color: #64748B; margin-bottom: 2px;
+}
+.map-legend-item {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 9px; color: #CBD5E1; letter-spacing: 0.4px; white-space: nowrap;
+}
+.legend-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.swatch-monitor { width: 10px; height: 10px; border-radius: 50%; background: #E2E8F0;
+  border: 1.5px solid #64748B; }
+.swatch-boundary { background: #E879F9; height: 3px; border-radius: 2px; box-shadow: 0 0 6px rgba(232, 121, 249, 0.7); }
+.swatch-status-risk   { background: #EF4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.7); }
+.swatch-status-review { background: #F59E0B; box-shadow: 0 0 6px rgba(245, 158, 11, 0.7); }
+.swatch-status-ok     { background: #22C55E; box-shadow: 0 0 6px rgba(34, 197, 94, 0.7); }
+
+.map-expand-modal { position: fixed; inset: 0; z-index: 5000;
+  display: flex; align-items: center; justify-content: center; }
+.map-expand-modal[hidden] { display: none; }
+.map-modal-backdrop { position: absolute; inset: 0; background: rgba(3, 8, 16, 0.72);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.map-modal {
+  position: relative; width: min(84vw, 1240px); height: min(82vh, 820px);
+  background: #0B1322; border: 1px solid rgba(96, 165, 250, 0.30); border-radius: 14px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.65);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.map-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  background: #0D1526;
+}
+.map-modal-head { display: flex; flex-direction: column; gap: 2px; }
+.map-modal-title { font-size: 13px; font-weight: 800; color: #F8FAFC; letter-spacing: 0.5px; }
+.map-modal-sub { font-size: 8.5px; font-weight: 700; color: #64748B; letter-spacing: 1.1px; text-transform: uppercase; }
+.map-modal-close {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(15, 23, 42, 0.9); color: #94A3B8;
+  border: 1px solid rgba(148, 163, 184, 0.4); font-size: 18px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.map-modal-close:hover { color: #F87171; border-color: #F87171; background: rgba(69, 10, 10, 0.5); }
+.map-modal-close:focus-visible { outline: 2px solid #38BDF8; outline-offset: 2px; }
+.map-modal-body { flex: 1; position: relative; min-height: 0; }
+.map-expand-modal .map-frame-wrap { height: 100%; margin: 0; }
+.map-expand-modal .map-render-frame { height: 100%; margin: 0; border: 0; border-radius: 0; }
+.map-expand-modal .map-expand-btn { display: none; }
+.map-modal-note {
+  font-size: 8.5px; color: #64748B; padding: 6px 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14); background: #0D1526;
+  font-style: italic; letter-spacing: 0.3px;
+}
+body.map-expanded-open { overflow: hidden; }
+
+/* ============ MONITORING POINT TOOLTIP ============ */
+.leaflet-tooltip.monitor-tooltip {
+  background: rgba(4, 10, 21, 0.95); border: 1px solid rgba(245, 158, 11, 0.55);
+  border-radius: 8px; color: #E2E8F0; padding: 8px 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55); max-width: 220px;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.leaflet-tooltip.monitor-tooltip::before {
+  border-top-color: rgba(245, 158, 11, 0.55);
+}
+.map-expand-modal .leaflet-tooltip.monitor-tooltip { color: #E2E8F0; }
+.monitor-tip { display: flex; flex-direction: column; gap: 4px; }
+.monitor-tip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.monitor-tip-title { font-size: 11px; font-weight: 900; color: #FBBF24; letter-spacing: 0.4px; }
+.monitor-sim-tag {
+  font-size: 7.5px; font-weight: 900; letter-spacing: 0.8px; color: #000;
+  background: #F59E0B; border-radius: 3px; padding: 1px 5px;
+}
+.monitor-tip-sub { font-size: 10px; color: #94A3B8; }
+.monitor-tip-meta { display: flex; flex-direction: column; gap: 3px;
+  background: #060B14; border: 1px solid #1E293B; border-radius: 5px; padding: 6px 8px; }
+.monitor-tip-meta > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.monitor-tip-meta span { font-size: 9px; color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
+.monitor-tip-meta strong { font-size: 10px; color: #E2E8F0; text-align: right; font-family: "JetBrains Mono", Menlo, Consolas, monospace; }
+.monitor-tip-note { font-size: 7.5px; font-style: italic; color: #64748B; }
+
+/* ============ DARK THEMED LEAFLET TOOLTIPS (no white tooltips anywhere) ============ */
+/* Higher specificity than leaflet.css's `.leaflet-tooltip` (loaded after us). */
+.leaflet-tooltip.leaflet-tooltip {
+  background: rgba(4, 10, 21, 0.96);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #E2E8F0;
+  padding: 8px 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(56, 189, 248, 0.12);
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.leaflet-tooltip.leaflet-tooltip-top::before    { border-top-color: #334155; }
+.leaflet-tooltip.leaflet-tooltip-bottom::before { border-bottom-color: #334155; }
+.leaflet-tooltip.leaflet-tooltip-left::before   { border-left-color: #334155; }
+.leaflet-tooltip.leaflet-tooltip-right::before  { border-right-color: #334155; }
+
+/* Zone orb tooltip — one custom themed tooltip, plain-language for a judge. */
+.leaflet-tooltip.zone-orb-tooltip {
+  background: rgba(4, 10, 21, 0.97);
+  border-color: #1F2A44;
+  padding: 0;
+  max-width: 250px;
+}
+.leaflet-tooltip.zone-orb-tooltip.leaflet-tooltip-top::before { border-top-color: #1F2A44; }
+.zone-orb-tip {
+  display: flex; flex-direction: column; gap: 3px;
+  min-width: 205px; padding: 9px 11px 8px;
+}
+.zone-orb-tip-title { font-size: 12px; font-weight: 900; color: #F8FAFC; letter-spacing: 0.4px; }
+.zone-orb-tip-row { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; color: #94A3B8; }
+.zone-orb-tip-row strong { color: #E2E8F0; font-weight: 700; text-align: right; }
+.zone-orb-tip-total { border-top: 1px dashed #26334F; padding-top: 3px; margin-top: 3px; }
+.zone-orb-tip-total strong { color: #38BDF8; font-weight: 900; }
+.zone-orb-tip-hint { font-size: 8.5px; color: #475569; font-style: italic; margin-top: 3px; }
+
+/* ============ PIT STATUS CARDS (enhanced) ============ */
+.pit-meta { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
+.pit-meta-row { font-size: 9.5px; color: var(--text-muted); }
+.pit-action {
+  margin-top: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.4px;
+  color: #38BDF8; text-transform: uppercase;
+}
+/* ============ SPECTRAL TOOLBAR (toggle directly above the map) ============ */
+.spectral-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.spectral-toolbar .toggle-stack { min-width: 0; }
+.spectral-toolbar-note {
+  font-size: 9.5px;
+  color: #64748B;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .spectral-toolbar { flex-direction: column; align-items: flex-start; }
+  .spectral-toolbar-note { white-space: normal; }
+}
+
+/* ============ SPECTRAL LOCK (screening gate) ============ */
+.zone-spectral-lock {
+  color: #FBBF24;
+  font-size: 11px;
+  line-height: 1.5;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.45);
+  border-radius: 5px;
+  padding: 10px 12px;
+}
+
+/* ============ PIXEL HINT / COMPACT PIXEL POPUP ============ */
+.pixel-hint {
+  font-size: 8.5px;
+  color: #64748B;
+  letter-spacing: 0.4px;
+  margin: 4px 0 6px;
+  text-transform: uppercase;
+}
+.pixel-popup {
+  position: fixed;
+  z-index: 9000;
+  min-width: 168px;
+  max-width: 220px;
+  background: rgba(4, 10, 21, 0.97);
+  border: 1px solid #334155;
+  border-radius: 7px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+}
+.pixel-popup[hidden] { display: none; }
+.pixel-popup-head {
+  font-size: 9px;
+  font-weight: 900;
+  color: #94A3B8;
+  letter-spacing: 0.6px;
+}
+.pixel-popup-class { font-size: 13px; font-weight: 900; margin: 3px 0 5px; }
+.pixel-popup-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 9.5px;
+}
+.pixel-popup-row span { color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
+.pixel-popup-row strong { color: #E2E8F0; text-align: right; }
+.pixel-popup-foot {
+  margin-top: 6px;
+  font-size: 7.5px;
+  color: #64748B;
+  font-style: italic;
+}
+
+/* ============ EXPANDED-MAP ZONE MINI CARD ============ */
+#map-modal-body { position: relative; }
+.expanded-zone-card {
+  position: absolute;
+  z-index: 1500;
+  width: 264px;
+  background: rgba(7, 14, 25, 0.97);
+  border: 1px solid #2B4C7E;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.expanded-zone-card[hidden] { display: none; }
+.ezc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ezc-status { font-size: 10px; font-weight: 900; letter-spacing: 0.6px; }
+.ezc-close {
+  width: 22px; height: 22px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  background: #111827;
+  color: #94A3B8;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ezc-close:hover { color: #F8FAFC; border-color: #F87171; }
+.ezc-title { font-size: 13px; font-weight: 800; color: #F8FAFC; margin-top: 4px; letter-spacing: 0.3px; }
+.ezc-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.ezc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 9.5px;
+  border-top: 1px dashed #1E293B;
+  padding-top: 4px;
+}
+.ezc-row span { color: #64748B; text-transform: uppercase; letter-spacing: 0.4px; }
+.ezc-row strong { color: #E2E8F0; text-align: right; }
+.ezc-foot {
+  margin-top: 8px;
+  font-size: 8px;
+  color: #64748B;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  border-top: 1px solid #1E293B;
+  padding-top: 6px;
+}
+
+/* ============ AOI-LEVEL SCOPE NOTE (spectral strip) ============ */
+.spec-scope-note {
+  font-size: 9.5px;
+  color: #94A3B8;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+.spec-scope-note strong { color: #FBBF24; }
 
 /* ---- CUSTOMER CONTRACT COMMAND ---- */
 .customer-card { margin-top: 18px; }

@@ -111,7 +111,13 @@ FUSION_PROTOTYPE_LABEL = (
 #   spatial_score - 0-100 spatial prospectivity from the demo spatial model
 #   spatial_provenance - clearly labels the source
 #   zone_type     - descriptive
-#   operational_status - links to the legacy telemetry story
+#   status             - canonical machine status (FLOODED / OPERATIONAL /
+#                        SPECTRAL ANOMALY / UNDER INVESTIGATION). This is the
+#                        SINGLE source of truth: map orbs/halos, zone cards,
+#                        popups and the map legend all read this value.
+#   production_impact  - canonical operational impact (HIGH / MEDIUM / LOW / REVIEW)
+#   recommended_action - canonical operational action for this zone
+#   operational_status - legacy human label (kept for backward compatibility)
 #   linked_geology_record_id - which processed_geology.csv row supplies
 #                              the (synthetic) Sentinel-2 reflectance
 #
@@ -125,65 +131,104 @@ CANDIDATE_ZONES = [
     {
         "zone_id": "ZONE_A",
         "name": "Zone A (North Deep)",
-        "latitude": 21.8515,
-        "longitude": 80.2225,
-        "spatial_score": 91.0,
+        "latitude": 21.8455,
+        "longitude": 80.2260,
+        # Flooded North Deep - spatial screening rates this the LOWEST
+        # prospectivity. The red FLOODED pin is also the lowest spatial score,
+        # so pin colour and prospectivity agree in direction.
+        "spatial_score": 31.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "High-prospectivity candidate",
+        "zone_type": "Low-prospectivity candidate",
+        # Canonical machine status (single source of truth for map/cards/spatial
+        # legend colours). 'operational_status' stays as the legacy human label.
+        "status": "FLOODED",
+        "production_impact": "HIGH",
+        "recommended_action": "Activate dewatering",
         "operational_status": "Flooded",
         "water_depth_m": 4.2,
         "pumps_active": 0,
-        # Highest spectral similarity - visually CONFIRMED (pulsing green ring)
+        # Low pyrolusite spectral similarity. The exposed surface in this
+        # flooded zone is a weathered/barren low-ore ground whose spectral
+        # shape sits far from the pyrolusite reference -> MISMATCH tier, so
+        # red status + low prospectivity + low similarity all agree.
         "linked_geology_record_id": "GEO-000015",
         # SYNTHETIC_DEMO chip config for the vegetation-masking demo mode.
-        "demo_chip": {"size": 20, "seed": 1101, "vegetation_fraction": 0.08, "water_fraction": 0.06},
+        # ZONE_A is flooded: the surface is mostly flooded/vegetated green
+        # with only a small exposed brown remnant, so the pixel view matches
+        # the red FLOODED story (more green, less brown).
+        "demo_chip": {
+            "size": 20, "seed": 1101, "vegetation_fraction": 0.55, "water_fraction": 0.25,
+            "exposed_reflectance": {"B04": 0.80, "B08": 0.72, "B11": 0.04, "B12": 0.03},
+        },
     },
     {
         "zone_id": "ZONE_B",
         "name": "Zone B (South Ridge)",
-        "latitude": 21.8385,
-        "longitude": 80.2320,
-        "spatial_score": 68.0,
+        "latitude": 21.8300,
+        "longitude": 80.2280,
+        # Operational South Ridge - highest spatial prospectivity; the green
+        # OPERATIONAL pin is also the top spatial score.
+        "spatial_score": 91.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "Medium-prospectivity candidate",
+        "zone_type": "High-prospectivity candidate",
+        "status": "OPERATIONAL",
+        "production_impact": "LOW",
+        "recommended_action": "Continue operations",
         "operational_status": "Dry",
         "water_depth_m": 0.0,
         "pumps_active": 2,
-        # Mid-high spectral - LIKELY (solid green ring)
+        # High spectral - CONFIRMED (pulsing green ring). Dry exposed ore
+        # surface: the chip is dominated by brown exposed pixels with little
+        # vegetation, so the pixel view matches the green OPERATIONAL story
+        # (brown more, green less = mineable ground).
         "linked_geology_record_id": "GEO-000005",
-        "demo_chip": {"size": 20, "seed": 1102, "vegetation_fraction": 0.26, "water_fraction": 0.05},
+        "demo_chip": {"size": 20, "seed": 1102, "vegetation_fraction": 0.15, "water_fraction": 0.05},
     },
     {
         "zone_id": "ZONE_C",
         "name": "Zone C (East Extension)",
-        "latitude": 21.8450,
-        "longitude": 80.2410,
-        "spatial_score": 31.0,
+        "latitude": 21.8400,
+        "longitude": 80.2345,
+        # Anomaly zone under review - medium prospectivity, between the flooded
+        # LOW and the operational HIGH zones.
+        "spatial_score": 68.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "Low-prospectivity candidate",
+        "zone_type": "Medium-prospectivity candidate",
+        "status": "SPECTRAL ANOMALY",
+        "production_impact": "REVIEW",
+        "recommended_action": "Inspect zone",
         "operational_status": "Anomaly",
         "water_depth_m": 0.8,
         "pumps_active": 1,
-        # Mid spectral - WEAK match (amber dashed ring)
+        # Mid spectral - WEAK (amber dashed ring), below the two high green
+        # zones. Exposed surface shape (slightly B04-heavy) keeps the split
+        # pixel chip between the flooded red zone (green-dominant) and the
+        # operational green zones (brown-dominant), with enough exposed
+        # surface to yield a real, zone-specific score.
         "linked_geology_record_id": "GEO-000055",
-        # Heavily vegetated: demo shows the NDVI guard suppressing a misleading
-        # spectral score (too few usable surface pixels remain).
-        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.90, "water_fraction": 0.02},
+        "demo_chip": {"size": 20, "seed": 1103, "vegetation_fraction": 0.45, "water_fraction": 0.10,
+                       "exposed_reflectance": {"B04": 0.15, "B11": 0.10, "B12": 0.10}},
     },
     {
         "zone_id": "ZONE_D",
         "name": "Zone D (Western Bench)",
-        "latitude": 21.8460,
-        "longitude": 80.2200,
-        "spatial_score": 74.0,
+        "latitude": 21.8435,
+        "longitude": 80.2205,
+        # Operational Western Bench - high prospectivity, alongside Zone B as
+        # one of the two green OPERATIONAL zones with the highest spatial scores.
+        "spatial_score": 82.0,
         "spatial_provenance": SYNTHETIC_ZONE_TAG,
-        "zone_type": "Medium-prospectivity candidate",
+        "zone_type": "High-prospectivity candidate",
+        "status": "OPERATIONAL",
+        "production_impact": "LOW",
+        "recommended_action": "Continue operations",
         "operational_status": "Active",
         "water_depth_m": 0.0,
         "pumps_active": 0,
-        # Lowest spectral - MISMATCH (red dashed ring)
-        # Story: spatial model was wrong here; spectral saves us a wasted field crew
+        # High spectral - CONFIRMED (pulsing green ring). Dry exposed ore
+        # surface like ZONE_B: the chip is dominated by brown exposed pixels,
+        # matching the green OPERATIONAL story (brown more, green less).
         "linked_geology_record_id": "GEO-000026",
-        "demo_chip": {"size": 20, "seed": 1104, "vegetation_fraction": 0.40, "water_fraction": 0.05},
+        "demo_chip": {"size": 20, "seed": 1104, "vegetation_fraction": 0.15, "water_fraction": 0.05},
     },
 ]

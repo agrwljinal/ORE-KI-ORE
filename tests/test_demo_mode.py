@@ -54,13 +54,19 @@ class VegDemoModeRouteTests(unittest.TestCase):
             else:
                 self.assertIsNone(zone["spectral_similarity"])  # no misleading score
 
-    def test_zone_c_heavily_vegetated_is_suppressed(self):
+    def test_zone_c_demo_is_scorable_like_every_other_zone(self):
         body = self.client.get("/api/zones?veg_demo=1").get_json()
         zone = next(z for z in body["zones"] if z["zone_id"] == "ZONE_C")
 
-        self.assertFalse(zone["vegetation_mask"]["scorable"])
-        self.assertIsNone(zone["spectral_similarity"])
-        self.assertEqual(zone["final_exploration_score"], zone["spatial_score"])
+        # ZONE_C behaves exactly like the other zones: its heavily-vegetated
+        # chip still leaves enough exposed surface to produce a real score.
+        self.assertTrue(zone["vegetation_mask"]["scorable"])
+        self.assertIsNotNone(zone["spectral_similarity"])
+        self.assertIsNotNone(zone["best_mineral_match"])
+        self.assertIsNotNone(zone["zone_reflectance"])
+        self.assertTrue(zone["spectral_scene"])
+        # Fused priority is a genuine fusion, not a spatial-only fallback.
+        self.assertNotEqual(zone["final_exploration_score"], zone["spatial_score"])
 
     def test_demo_mode_never_pretends_to_be_real_satellite(self):
         body = self.client.get("/api/zones?veg_demo=1").get_json()
@@ -83,6 +89,51 @@ class VegDemoModeRouteTests(unittest.TestCase):
         self.assertAlmostEqual(body["similarity_pct"], 97.84, places=2)
         self.assertEqual(body["vegetation_mask"]["level"], "AOI_LEVEL_PROTOTYPE")
         self.assertNotIn("demo_chip", body)
+
+    def test_xai_route_restores_confidence_and_explanation_shape(self):
+        body = self.client.get("/api/xai").get_json()
+
+        self.assertEqual(body["status"], "success")
+        self.assertIn("confidence_pct", body)
+        self.assertIn("confidence_status", body)
+        self.assertIsInstance(body["confidence_pct"], (int, float))
+        self.assertGreaterEqual(body["confidence_pct"], 0)
+        self.assertLessEqual(body["confidence_pct"], 100)
+        self.assertIn("xai_chart_data", body)
+        self.assertIsInstance(body["xai_chart_data"], list)
+        self.assertGreater(len(body["xai_chart_data"]), 0)
+        self.assertIn("xai_bullet_reasons", body)
+        self.assertIsInstance(body["xai_bullet_reasons"], list)
+
+    def test_xai_route_accepts_slider_payload_and_returns_expected_keys(self):
+        payload = {
+            "rainfall_mm": 90.0,
+            "soil_moisture_pct": 40.0,
+            "equipment_downtime_hours": 8.0,
+            "blast_delay_minutes": 50.0,
+            "labor_drop_pct": 12.0,
+            "target_tonnage": 14500.0,
+            "ore_grade": "STD",
+        }
+        body = self.client.post("/api/xai", json=payload)
+
+        self.assertEqual(body.status_code, 200)
+        data = body.get_json()
+        self.assertEqual(data["status"], "success")
+        self.assertIn("confidence_pct", data)
+        self.assertIn("confidence_status", data)
+        self.assertIn("attributions", data)
+        self.assertEqual(set(data["attributions"].keys()), {
+            "Rainfall",
+            "Soil Moisture",
+            "Equipment Downtime",
+            "Blast Delay",
+            "Labor Drop",
+            "Ore Quality",
+        })
+        self.assertIn("xai_chart_data", data)
+        self.assertIn("xai_bullet_reasons", data)
+        self.assertIn("narrative", data)
 
 
 if __name__ == "__main__":

@@ -21,16 +21,45 @@ try:
 except ImportError:  # pragma: no cover
     st = None  # type: ignore[assignment]
 
+# The demo dashboard is scoped to MOIL Balaghat Sector 4.  Live weather is
+# therefore fetched for the exact Bharveli-Awalajhari AOI midpoint, matching
+# DEFAULT_MAP_CENTER in constants.py, instead of a generic city lookup.
+CITY_FALLBACK = "Balaghat"
+BALAGHAT_AOI_LAT = 21.845
+BALAGHAT_AOI_LON = 80.232
+BALAGHAT_SITE_LABEL = "Balaghat Sector 4 (Bharveli AOI 21.845, 80.232)"
+
+# Rain level buckets for a mm/24h total (IMD-style). Ordered heaviest first.
+RAIN_LEVEL_BUCKETS = (
+    ("Very Heavy", 64.4),
+    ("Heavy", 35.5),
+    ("Moderate", 7.5),
+    ("Light", 0.2),
+)
+
+
+def classify_rain_level(mm_24h) -> str:
+    """Map a 24h rainfall total to a human level, e.g. 12.4 -> 'Moderate'."""
+    if mm_24h is None:
+        return "n/a"
+    mm = float(mm_24h)
+    for label, threshold in RAIN_LEVEL_BUCKETS:
+        if mm >= threshold:
+            return label
+    return "Trace"
+
 class WeatherService:
     """Handles API requests and live weather data synchronization."""
     BASE_URL = "https://api.openweathermap.org/data/2.5/weather"
+    FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 
     def __init__(self, api_key: Optional[str] = None):
         # Fallback to environment variable if API key is not passed directly
         self.api_key = api_key or os.getenv("OPENWEATHER_API_KEY", "")
 
-    def fetch_live_weather(self, city: str = "Delhi") -> Dict[str, Any]:
-        """Fetches real-time weather data for a given city."""
+    def fetch_live_weather(self, city: str = CITY_FALLBACK, lat: Optional[float] = None,
+                           lon: Optional[float] = None) -> Dict[str, Any]:
+        """Fetches real-time weather by AOI coordinates (preferred) or city name."""
         if not self.api_key:
             return {
                 "success": False,
@@ -38,10 +67,14 @@ class WeatherService:
             }
 
         params = {
-            "q": city,
             "appid": self.api_key,
             "units": "metric"
         }
+        if lat is not None and lon is not None:
+            params["lat"] = lat
+            params["lon"] = lon
+        else:
+            params["q"] = city
 
         try:
             response = requests.get(self.BASE_URL, params=params, timeout=10)
@@ -50,10 +83,56 @@ class WeatherService:
                 return {
                     "success": True,
                     "city": data.get("name"),
+                    "lat": data["coord"]["lat"],
+                    "lon": data["coord"]["lon"],
                     "temp": data["main"]["temp"],
                     "humidity": data["main"]["humidity"],
                     "condition": data["weather"][0]["description"].title(),
-                    "wind_speed": data["wind"]["speed"]
+                    "wind_speed": data["wind"]["speed"],
+                    "query": "AOI:" + str(lat) + "," + str(lon) if (lat is not None and lon is not None) else "city:" + str(city),
+                }
+            elif response.status_code == 401:
+                return {"success": False, "error": "Invalid API Key (HTTP 401)."}
+            else:
+                return {"success": False, "error": f"API Error HTTP {response.status_code}: {response.text}"}
+        except requests.exceptions.RequestException as e:
+            return {"success": False, "error": f"Network Error: {str(e)}"}
+
+    def fetch_rainfall_24h(self, lat: Optional[float] = None,
+                           lon: Optional[float] = None) -> Dict[str, Any]:
+        """Fetches live rainfall (mm/24h) by summing 3-hourly forecast steps
+        over the next 24 hours for the Balaghat Sector 4 AOI coordinates."""
+        if not self.api_key:
+            return {
+                "success": False,
+                "error": "Missing API Key. Please configure OPENWEATHER_API_KEY."
+            }
+        if lat is None or lon is None:
+            return {"success": False, "error": "AOI lat/lon required for rainfall fetch."}
+
+        params = {
+            "lat": lat,
+            "lon": lon,
+            "appid": self.api_key,
+            "units": "metric",
+            "cnt": 8,  # 8 x 3h steps = next 24 hours
+        }
+
+        try:
+            response = requests.get(self.FORECAST_URL, params=params, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                total = 0.0
+                steps = 0
+                for item in data.get("list", []):
+                    rain = (item.get("rain") or {}).get("3h") or 0
+                    total += float(rain)
+                    steps += 1
+                return {
+                    "success": True,
+                    "rainfall_mm_24h": round(total, 2),
+                    "steps": steps,
+                    "level": classify_rain_level(total),
                 }
             elif response.status_code == 401:
                 return {"success": False, "error": "Invalid API Key (HTTP 401)."}
@@ -65,12 +144,15 @@ class WeatherService:
 
 class WeatherModule:
     """Framework-agnostic module handler for SIH Dashboard."""
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None,
+                 lat: Optional[float] = None, lon: Optional[float] = None):
         self.service = WeatherService(api_key=api_key)
+        self.site_lat = lat if lat is not None else BALAGHAT_AOI_LAT
+        self.site_lon = lon if lon is not None else BALAGHAT_AOI_LON
         self.current_data: Dict[str, Any] = {}
         self.is_syncing: bool = False
 
-    def sync_weather(self, city: str = "Delhi", callback=None):
+    def sync_weather(self, city: str = CITY_FALLBACK, callback=None):
         """Asynchronous sync method to prevent UI freezing."""
         if self.is_syncing:
             return
@@ -78,7 +160,7 @@ class WeatherModule:
         self.is_syncing = True
 
         def worker():
-            result = self.service.fetch_live_weather(city)
+            result = self.service.fetch_live_weather(city, lat=self.site_lat, lon=self.site_lon)
             self.current_data = result
             self.is_syncing = False
             if callback:
@@ -116,7 +198,6 @@ BLAST_WEATHER_ADD_MIN = 90.0           # blast delay minutes add at full severit
 EFFECTIVE_DOWNTIME_CEIL_HRS = 10.0     # stays inside the model's alive response band
 EFFECTIVE_BLAST_CEIL_MIN = 120.0
 EFFECTIVE_SOIL_CEIL_PCT = 60.0
-CITY_FALLBACK = "Delhi"
 
 
 def _clamp(value: float, low: float, high: float) -> float:
@@ -200,7 +281,17 @@ def compute_weather_scenario(
         SEVERITY_SLIDER_WEIGHT * slider_rain_index + SEVERITY_LIVE_WEIGHT * live_index,
         0.0, 1.0,
     )
-    effective_rainfall_mm = max(0.0, float(rainfall_mm))
+    # While a live feed is active, the API's own 24h rainfall is the authority:
+    # the effective rainfall always follows the live reading instead of any
+    # manually-entered slider value.  Fall back to the slider only when no live
+    # rainfall is available (manual mode / API failure).
+    live_rain = None
+    if live and live.get("success"):
+        try:
+            live_rain = float(live.get("rainfall_mm_24h"))
+        except (TypeError, ValueError):
+            live_rain = None
+    effective_rainfall_mm = max(0.0, live_rain) if live_rain is not None else max(0.0, float(rainfall_mm))
     effective_soil = _clamp(float(soil_moisture_pct) + SOIL_WEATHER_ADD_PCT * severity, 0.0, EFFECTIVE_SOIL_CEIL_PCT)
     effective_downtime = _clamp(
         float(equipment_downtime_hours) + DOWNTIME_WEATHER_ADD_HRS * severity,

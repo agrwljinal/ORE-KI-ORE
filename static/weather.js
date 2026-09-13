@@ -2,7 +2,10 @@
   "use strict";
 
   var AUTO_SYNC_MS = 5 * 60 * 1000;
+  var DEFAULT_CITY = "Balaghat";
   var autoSyncTimer = null;
+  var rainLocked = false;
+  var lastRainfallValue = 88.5;
 
   function $(id) {
     return document.getElementById(id);
@@ -27,7 +30,9 @@
     if (live.success) {
       setText("temp-display", live.temp != null ? Number(live.temp).toFixed(1) : "--");
       setText("condition-display", live.condition || "n/a");
-      setText("weather-status", "Updated for " + (live.city || data.city));
+      var site = data.site || {};
+      var at = (site.label || (live.city || data.city));
+      setText("weather-status", "Live @ " + at);
     } else {
       setText("temp-display", "--");
       setText("condition-display", "no feed");
@@ -55,6 +60,9 @@
       setText("weather-impact", "— t");
       setText("weather-impact-note", impact ? impact.note : "");
     }
+
+    setText("rainfall-display", live.rainfall_mm_24h != null ? Number(live.rainfall_mm_24h).toFixed(1) + " mm" : "--");
+    setText("rain-level-display", live.rain_level || "n/a");
   }
 
   function currentState() {
@@ -71,7 +79,7 @@
   }
 
   function refreshWeatherPanel(cityOverride) {
-    var city = (cityOverride || getCity()).trim() || "Delhi";
+    var city = (cityOverride || getCity()).trim() || DEFAULT_CITY;
     fetch("/api/weather?city=" + encodeURIComponent(city), { headers: { "cache-control": "no-cache" } })
       .then(function (res) { return res.json(); })
       .then(renderWeatherPanel)
@@ -82,7 +90,7 @@
 
   function getCity() {
     var el = $("city-input");
-    return el ? (el.value || "Delhi") : "Delhi";
+    return el ? (el.value || DEFAULT_CITY) : DEFAULT_CITY;
   }
 
   function applyEffectiveInputs(inputs) {
@@ -124,7 +132,16 @@
           setText("weather-status", data.message || data.live_error || "Live weather unavailable; nothing applied.");
           return;
         }
-        applyEffectiveInputs(data.weather_scenario && data.weather_scenario.effective_inputs);
+        var inputs = data.weather_scenario && data.weather_scenario.effective_inputs;
+        if (inputs) {
+          // Rainfall slider is API-driven: use the live 24h total from the API,
+          // not the weather-translated value.
+          inputs.rainfall_mm = (data.live && data.live.rainfall_mm_24h != null)
+            ? data.live.rainfall_mm_24h
+            : inputs.rainfall_mm;
+          inputs.rainfall_mm = Math.min(250, Math.max(0, Number(inputs.rainfall_mm) || 0));
+        }
+        applyEffectiveInputs(inputs);
         renderWeatherPanel(data);
         if (typeof window.refreshAll === "function") {
           window.refreshAll(true);
@@ -154,12 +171,49 @@
     var button = $("sync-weather-btn");
     if (button) button.addEventListener("click", syncWeatherNow);
 
+    // Rainfall is API-driven while auto-sync is ON; free for manual entry
+  // when auto-sync is OFF.
+  function setRainfallLocked(locked) {
+    var el = $("slider-rainfall");
+    if (!el) return;
+    rainLocked = !!locked;
+    if (locked && el.value != null && el.value !== "") {
+      lastRainfallValue = parseFloat(el.value) || lastRainfallValue;
+    }
+    el.disabled = locked;
+    el.style.cursor = locked ? "not-allowed" : "";
+    el.style.opacity = locked ? "0.6" : "";
+    el.title = locked
+      ? "Locked to the live API while auto-sync is on."
+      : "Manual entry (auto-sync off).";
+  }
+
     var toggle = $("toggle-weather-sync");
     if (toggle) {
       toggle.addEventListener("change", function () {
+        setRainfallLocked(toggle.checked);
         if (toggle.checked) startAutoSync(); else stopAutoSync();
       });
+      setRainfallLocked(toggle.checked);
       if (toggle.checked) startAutoSync();
+    }
+
+    // Defence-in-depth: while auto-sync is ON, reject any manual slider
+    // movement even if something else transiently enabled the element.
+    var guardSlider = $("slider-rainfall");
+    if (guardSlider) {
+      function guardRain(ev) {
+        if (!rainLocked) return;
+        if (guardSlider.disabled) { ev.preventDefault(); return; }
+        guardSlider.value = lastRainfallValue;
+        guardSlider.disabled = true;
+        ev.preventDefault();
+        if (typeof window.updateControlBadges === "function" && typeof window.getControls === "function") {
+          try { window.updateControlBadges(window.getControls()); } catch (e) { /* ignore */ }
+        }
+      }
+      guardSlider.addEventListener("input", guardRain);
+      guardSlider.addEventListener("change", guardRain);
     }
 
     var debounce = null;

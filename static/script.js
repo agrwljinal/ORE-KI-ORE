@@ -92,11 +92,6 @@ let mapInstance = null;
 let layers = { spatial: null, spectral: null, telemetry: null, aoi: null };
 let baseMapLayer;
 let baseMapMode = "dark";
-// The front-end presentation pipeline always runs over the clearly-labelled
-// SYNTHETIC_DEMO chips (no real raster is available), so the vegetation mask
-// and surface renderer are always in demo mode.
-let vegDemoMode = true;
-
 // Space-tech spectral screening state (scan sweep + energy halos).
 let screeningActive = false;
 let haloMarkers = [];
@@ -105,6 +100,8 @@ let revealStopToken = 0;
 // Latest loaded zones + marker registry for focusing/highlighting.
 let zonesCache = [];
 let zoneMarkers = {};
+let telemetryMarkers = {};   // zone_id -> { dot, el } (monitoring-point markers)
+let selectedZoneId = null;   // the currently selected zone (dot highlight + spectral card)
 
 // Synthetic surface renderer state.
 let surfaceMode = "raw";   // "raw" | "filtered"
@@ -116,19 +113,41 @@ let activeZoneId = null;   // the actual zone_id captured at pin-click time
 let surfaceScanning = false; // live NDVI sweep in progress (toggles locked)
 
 // Pyrolusite reference vector (matches modules.spectral.PYROLUSITE_REFERENCE).
-// Only used for visual comparison in the fingerprint bars.
+// Only used for visual comparison in the fingerprint bars + signature chart.
 const PYROLUSITE_REF = { B04: 0.05571, B08: 0.05838, B11: 0.09301, B12: 0.08208 };
+
+// Sentinel-2 band order + central wavelengths (modules.spectral.SENTINEL_WAVELENGTHS_UM).
+const SENTINEL_BANDS = [
+  { id: "B04", label: "B04 RED",  nm: "665 nm" },
+  { id: "B08", label: "B08 NIR",  nm: "842 nm" },
+  { id: "B11", label: "B11 SWIR-1", nm: "1610 nm" },
+  { id: "B12", label: "B12 SWIR-2", nm: "2190 nm" },
+];
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, s = "") => (n === null || n === undefined) ? "--" : `${n}${s}`;
 
-const priorityStyle = (p) => {
-  // Green = HIGH (most suitable for mining - matches user expectation).
-  if (p === "HIGH")   return { color: "#4ADE80", glow: "rgba(74, 222, 128, 0.70)" };
-  if (p === "MEDIUM") return { color: "#FBBF24", glow: "rgba(251, 191, 36, 0.65)" };
-  return { color: "#F87171", glow: "rgba(248, 113, 113, 0.70)" }; // LOW
+// Canonical operational-status colours used only by equipment/water monitoring
+// dots. Zone orbs, energy halos and the map legend do NOT use status colours:
+// they speak the suitability language below, and operational status is
+// carried as text.
+const STATUS_META = {
+  FLOODED: { color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
+  OPERATIONAL: { color: "#22C55E", glow: "rgba(34, 197, 94, 0.70)" },
+  "SPECTRAL ANOMALY": { color: "#F59E0B", glow: "rgba(245, 158, 11, 0.70)" },
+  "UNDER INVESTIGATION": { color: "#94A3B8", glow: "rgba(148, 163, 184, 0.65)" },
 };
-const priorityColor = (p) => priorityStyle(p).color;
+// Resolve a zone's canonical status (always prefer the machine field).
+function zoneStatus(z) {
+  if (!z) return "UNDER INVESTIGATION";
+  const s = String(z.status || z.operational_status || "").toUpperCase();
+  if (STATUS_META[s]) return s;
+  if (/flood|inundat|submerg|waterlog/i.test(s)) return "FLOODED";
+  if (/anomal/i.test(s)) return "SPECTRAL ANOMALY";
+  if (/dry|active|operational|normal|open|ok|nominal|running/i.test(s)) return "OPERATIONAL";
+  return "UNDER INVESTIGATION";
+}
+const statusStyle = (z) => STATUS_META[zoneStatus(z)] || STATUS_META["UNDER INVESTIGATION"];
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -145,6 +164,38 @@ function confirmationTier(spectralSimilarity) {
   return { label: "MISMATCH",    color: "#EF4444", pulse: false, dash: "2 6" };
 }
 
+// Mining-suitability colour language, derived from the pyrolusite spectral
+// similarity. This is the ONE colour meaning used by zone orbs, energy halos
+// and the map legend:
+//   GREEN = highest spatial prospectivity (best mining potential)
+//   AMBER = medium prospectivity (review)
+//   RED   = lowest spatial prospectivity (least potential)
+// Operational status is never coloured on these surfaces - it is text-only.
+const PROSPECTIVITY_META = {
+  high:   { label: "HIGH PROSPECTIVITY",  color: "#10B981", glow: "rgba(16, 185, 129, 0.70)" },
+  medium: { label: "MEDIUM PROSPECTIVITY", color: "#F59E0B", glow: "rgba(245, 158, 11, 0.70)" },
+  low:    { label: "LOW PROSPECTIVITY",   color: "#EF4444", glow: "rgba(239, 68, 68, 0.70)" },
+  unknown:{ label: "NO DATA",             color: "#94A3B8", glow: "rgba(148, 163, 184, 0.65)" },
+};
+function prospectivityStyle(z) {
+  const band = String(z && (z.spatial_priority_band || "")).toUpperCase();
+  if (band === "HIGH") return PROSPECTIVITY_META.high;
+  if (band === "MEDIUM") return PROSPECTIVITY_META.medium;
+  if (band === "LOW") return PROSPECTIVITY_META.low;
+  return PROSPECTIVITY_META.unknown;
+}
+
+// Production impact / priority labels (HIGH / MEDIUM / REVIEW / LOW) are
+// colour-coded on the SAME suitability scale so every scale on screen reads
+// identically: HIGH = green (most suitable), mid = amber (review/uncertain),
+// LOW = red (least suitable). One helper keeps every impact label consistent.
+function impactColor(impact) {
+  const i = String(impact || "").toUpperCase();
+  if (i === "HIGH") return "#10B981";
+  if (i === "REVIEW" || i === "MODERATE" || i === "MEDIUM") return "#F59E0B";
+  return "#EF4444";
+}
+
 // Map backend provenance enum -> human-friendly chip text/color.
 function provenanceChip(raw) {
   if (!raw) return { text: "UNKNOWN", cls: "prov-unknown" };
@@ -158,59 +209,6 @@ function provenanceChip(raw) {
   if (raw === "ZONE_LEVEL_SPECTRAL_UNAVAILABLE")
     return { text: "SPECTRAL DATA UNAVAILABLE FOR THIS ZONE", cls: "prov-unavail" };
   return { text: raw, cls: "prov-unknown" };
-}
-
-// Human-readable summary of the per-zone vegetation (NDVI) mask that ran
-// BEFORE the B04/B08/B11/B12 means were extracted.
-function vegetationMaskSummary(mask, demo = false) {
-  if (!mask) return "Vegetation mask: unavailable.";
-  if (mask.status === "APPLIED") {
-    const src = demo ? "SYNTHETIC_DEMO chip" : "Per-pixel chip";
-    if (!mask.scorable) {
-      return `${src}: ${mask.surface_coverage_pct}% exposed surface remains -- too little to score, spectral result suppressed (no misleading score emitted).`;
-    }
-    return (
-      `${src}: removed ${mask.vegetation_pixels_removed}/${mask.total_pixels} vegetated pixels ` +
-      `(NDVI > ${mask.ndvi_threshold}), excluded ${mask.water_pixels_excluded} water/shadow pixels ` +
-      `(NDVI < ${mask.ndvi_water_low_threshold ?? "-0.10"}), ` +
-      `${mask.valid_pixels_remaining} valid pixels remain (${mask.surface_coverage_pct}% coverage).`
-    );
-  }
-  return "Vegetation mask: not applied (no per-pixel Sentinel-2 data; unmasked synthetic vector used).";
-}
-
-// Full masking chain the demo mode highlights:
-// Total pixels -> vegetation removed -> usable surface pixels -> spectral
-// similarity -> final exploration priority.
-function vegetationChain(mask, z, demo = false) {
-  const id = $("zp-veg-chain");
-  if (!id) return;
-  if (!mask || mask.status !== "APPLIED") {
-    id.textContent = demo || vegDemoMode
-      ? "Chain unavailable: no pixel chip data."
-      : "Enable Synthetic Demo · Veg-Masked Spectral to view the masking chain.";
-    id.classList.toggle("veg-chain-strip-muted", true);
-    return;
-  }
-  id.classList.remove("veg-chain-strip-muted");
-  const total = fmt(mask.total_pixels, " px");
-  const removed = fmt(mask.vegetation_pixels_removed, " px");
-  const excludedWater = fmt(mask.water_pixels_excluded, " px");
-  const valid = fmt(mask.valid_pixels_remaining, " px");
-  const coverage = mask.surface_coverage_pct === null || mask.surface_coverage_pct === undefined
-    ? "--"
-    : `${mask.surface_coverage_pct}%`;
-  const spectral = mask.scorable
-    ? fmt(z.spectral_similarity, "%")
-    : "N/A";
-  const priority = (mask.scorable && z.priority) || "SPATIAL-ONLY";
-  id.innerHTML =
-    `<span>Total <b>${total}</b></span><i>→</i>` +
-    `<span>veg <b>−${removed}</b></span><i>→</i>` +
-    `<span>water <b>−${excludedWater}</b></span><i>→</i>` +
-    `<span>usable <b>${valid}</b> (${coverage})</span><i>→</i>` +
-    `<span>spectral <b>${spectral}</b></span><i>→</i>` +
-    `<span>priority <b>${priority}</b></span>`;
 }
 
 // Highlight the current step in the SPATIAL -> SPECTRAL -> FUSION -> VERIFY strip.
@@ -258,6 +256,7 @@ function closeZonePanel(event, keepOverlay = false) {
     event.preventDefault();
     event.stopPropagation();
   }
+  hidePixelPopup();
   const panel = $("zone-panel");
   if (!panel) return;
   // Accessibility: focus must never be marooned inside a subtree that is
@@ -354,7 +353,10 @@ async function loadZones(demo = false) {
   data.zones.forEach((z) => {
     const lat = z.latitude;
     const lon = z.longitude;
-    const st = priorityStyle(z.spatial_priority_band);
+    // Pin colour = the zone's canonical OPERATIONAL STATUS and is permanent:
+    // FLOODED red, SPECTRAL ANOMALY orange, OPERATIONAL green. It never
+    // changes with hover, selection, screening, zoom or prospectivity.
+    const st = statusStyle(z);
 
     // Soft expanding halo ring behind the orb (subtle pulse).
     L.marker([lat, lon], {
@@ -365,6 +367,9 @@ async function loadZones(demo = false) {
         iconAnchor: [30, 30],
       }),
       interactive: false,
+    }).on("add", (ev) => {
+      const ring = ev.target.getElement().querySelector(".zone-ring");
+      if (ring) ring.style.setProperty("--zone-color", st.color);
     }).addTo(layers.spatial);
 
     // Translucent glowing orb marker.
@@ -384,20 +389,14 @@ async function loadZones(demo = false) {
       if (!core) return;
       core.style.setProperty("--zone-color", st.color);
       core.style.setProperty("--zone-glow", st.glow);
-      core.title = z.name;
     });
-    const vegLine = demo && z.vegetation_mask && z.vegetation_mask.status === "APPLIED"
-      ? `<br>Veg −${z.vegetation_mask.vegetation_pixels_removed} · water −${z.vegetation_mask.water_pixels_excluded} · usable ${z.vegetation_mask.valid_pixels_remaining} px (${z.vegetation_mask.surface_coverage_pct}%)`
-      : "";
-    orb.bindTooltip(
-      `<b>${z.name}</b><br>` +
-      `Spatial: <b>${z.spatial_score}%</b> (${z.spatial_priority_band})<br>` +
-      `Spectral: <b>${fmt(z.spectral_similarity, "%")}</b><br>` +
-      `Fusion: <b>${z.final_exploration_score}%</b> → ${z.priority}<br>` +
-      vegLine +
-      `<i>Click for full intel</i>`,
-      { direction: "top", offset: [0, -12] }
-    );
+    const status = zoneStatus(z);
+    // Zone tooltip — dark themed, plain-language wording for a non-technical
+    // judge. The native browser title tooltip is intentionally NOT set. The
+    // tooltip is rebuilt from the screening toggle so spectral fields only
+    // appear once Spectral Mineral Screening is ON (single source of truth).
+    orb.zone = z;
+    orb.bindTooltip(buildZoneTip(z), { direction: "top", offset: [0, -12], className: "zone-orb-tooltip" });
     orb.on("click", () => onZoneSelect(z));
     orb.addTo(layers.spatial);
 
@@ -408,16 +407,84 @@ async function loadZones(demo = false) {
   setWorkflowStep(1);
 }
 
-// Cinematic focus: smooth zoom into the zone and highlight its marker.
-function focusZone(z) {
-  try { map.flyTo([z.latitude, z.longitude], 18, { duration: 1.6 }); } catch (e) {}
-  Object.entries(zoneMarkers).forEach(([id, m]) => {
-    const core = m.orb.getElement() && m.orb.getElement().querySelector(".zone-orb");
-    if (core) {
-      core.classList.toggle("zone-selected", id === z.zone_id);
-      core.classList.toggle("zone-dimmable", id !== z.zone_id);
+// Zone tooltip content, rebuilt from the screening toggle. Every zone gets the
+// SAME themed tooltip with the same labelled rows: Status, Spatial
+// Prospectivity, Pyrolusite Spectral Similarity (only when screening is ON)
+// and Overall Assessment. All values come from the canonical zone record.
+function buildZoneTip(z) {
+  const status = zoneStatus(z);
+  const st = statusStyle(z);
+  let rows =
+    `<div class="zone-orb-tip-row"><span>Spatial Prospectivity</span><strong>${fmt(z.spatial_score, "%")} — ${z.spatial_priority_band || "—"}</strong></div>`;
+  let overall = isFinite(Number(z.spatial_score)) ? Number(z.spatial_score) : 0;
+  let band = z.spatial_priority_band || "—";
+  if (screeningActive) {
+    const simText =
+      z.spectral_similarity === null || z.spectral_similarity === undefined
+        ? "N/A"
+        : fmt(z.spectral_similarity, "%");
+    rows +=
+      `<div class="zone-orb-tip-row"><span>Pyrolusite Spectral Similarity</span><strong>${simText}</strong></div>`;
+    overall = isFinite(Number(z.final_exploration_score))
+      ? Number(z.final_exploration_score)
+      : Number(z.spatial_score);
+    band = z.priority || z.spatial_priority_band || "—";
+  }
+  return (
+    `<div class="zone-orb-tip">` +
+    `<div class="zone-orb-tip-title">${z.name}</div>` +
+    `<div class="zone-orb-tip-row"><span>Status</span><strong style="color:${st.color}">${status}</strong></div>` +
+    rows +
+    `<div class="zone-orb-tip-row zone-orb-tip-total"><span>Overall Assessment</span><strong>${fmt(overall, "%")} — ${band}</strong></div>` +
+    `<div class="zone-orb-tip-hint">Click for full intel</div>` +
+    `</div>`
+  );
+}
+
+// Rebuild every zone orb tooltip after the screening toggle flips so no stale
+// spectral fields linger in a hover tip.
+function refreshZoneTooltips() {
+  Object.values(zoneMarkers).forEach((m) => {
+    if (m && m.orb && m.orb.zone) m.orb.setTooltipContent(buildZoneTip(m.orb.zone));
+  });
+}
+
+// Rebuild monitoring-point tooltips after the screening toggle flips so their
+// spectral rows (deviation / confidence) appear and disappear consistently.
+function refreshMonitorTooltips() {
+  Object.values(telemetryMarkers).forEach((tm) => {
+    const dot = tm && tm.dot;
+    if (dot && dot.payload) {
+      const zone = (zonesCache || []).find((zz) => zz.zone_id === dot.payload.id) || {};
+      dot.setTooltipContent(monitorTooltipHtml(dot.idx, dot.payload, zone));
     }
   });
+}
+
+// Highlight the selected zone across every surface: map orbs, monitoring
+// dots and the pit-grid cards. Kept in one place so card/dot/orb clicks all
+// stay in sync (single selection state = selectedZoneId).
+function applySelectedHighlights() {
+  Object.entries(zoneMarkers).forEach(([id, m]) => {
+    const core = m.orb.getElement && m.orb.getElement().querySelector(".zone-orb");
+    if (core) {
+      core.classList.toggle("zone-selected", id === selectedZoneId);
+    }
+  });
+  Object.entries(telemetryMarkers).forEach(([id, tm]) => {
+    const dot = tm.el && tm.el.querySelector(".telemetry-dot");
+    if (dot) dot.classList.toggle("monitor-selected", id === selectedZoneId);
+  });
+  document.querySelectorAll("#pit-telemetry-grid .pit-box").forEach((box) => {
+    box.classList.toggle("pit-selected", box.dataset.zoneId === selectedZoneId);
+  });
+}
+
+// Cinematic focus: smooth zoom into the zone and highlight its marker.
+function focusZone(z) {
+  selectedZoneId = z.zone_id || null;
+  try { map.flyTo([z.latitude, z.longitude], 18, { duration: 1.6 }); } catch (e) {}
+  applySelectedHighlights();
   setWorkflowStep(1);
 }
 
@@ -428,6 +495,15 @@ function onZoneSelect(z) {
   const btn = $("btn-surface-filter");
   if (btn) btn.dataset.zoneId = activeZoneId || "";
   focusZone(z);
+  // Synchronous spectral card + graph update for the exact selected zone
+  // (single source = the canonical zones cache, no extra fetch).
+  renderSpectralCard(z);
+  if (expandMapOpen) {
+    // Expanded map: a small floating card near the zone instead of the full
+    // panel, so the expanded map stays usable.
+    showExpandedZoneCard(z);
+    return;
+  }
   showZoneDetail(z.zone_id);
 }
 
@@ -542,6 +618,64 @@ function setViewToggle(mode) {
     if (!el) return;
     el.classList.toggle("active", surfaceMode === m);
     el.setAttribute("aria-pressed", surfaceMode === m ? "true" : "false");
+  });
+}
+
+// ---------------- COMPACT PIXEL READOUT ----------------
+// Clicking an individual pixel on the synthetic surface shows a small popup
+// with only that pixel's class + NDVI (never the giant zone panel).
+let pixelPopupActive = false;
+
+function showPixelPopup(clientX, clientY, info) {
+  const pop = $("pixel-popup");
+  if (!pop) return;
+  const clsLabel = String(info.cls || "exposed").toUpperCase();
+  const clsInfo = {
+    WATER: { color: "#38BDF8", label: "Water surface" },
+    VEGETATION: { color: "#34D399", label: "Vegetation" },
+    EXPOSED: { color: "#E2E8F0", label: "Exposed surface" },
+  }[clsLabel] || { color: "#E2E8F0", label: "Exposed surface" };
+  const ndvi = isFinite(Number(info.ndvi)) ? Number(info.ndvi).toFixed(2) : "--";
+  pop.innerHTML =
+    `<div class="pixel-popup-head">PIXEL ${String(info.j).padStart(2, "0")},${String(info.i).padStart(2, "0")}</div>` +
+    `<div class="pixel-popup-class" style="color:${clsInfo.color}">${clsLabel}</div>` +
+    `<div class="pixel-popup-row"><span>Class</span><strong>${clsInfo.label}</strong></div>` +
+    `<div class="pixel-popup-row"><span>NDVI</span><strong>${ndvi}</strong></div>` +
+    `<div class="pixel-popup-foot">SYNTHETIC DEMO pixel</div>`;
+  pop.style.left = Math.min(clientX + 12, window.innerWidth - 200) + "px";
+  pop.style.top = Math.max(8, clientY - 8) + "px";
+  pop.hidden = false;
+  pixelPopupActive = true;
+}
+
+function hidePixelPopup() {
+  const pop = $("pixel-popup");
+  if (pop) pop.hidden = true;
+  pixelPopupActive = false;
+}
+
+function initPixelPicking() {
+  const canvas = $("zp-surface-canvas");
+  if (!canvas || canvas.dataset.pickWired) return;
+  canvas.dataset.pickWired = "1";
+  canvas.addEventListener("click", (ev) => {
+    if (!surfaceChip) return;
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const size = surfaceChip.size || 20;
+    const fx = (ev.clientX - rect.left) / rect.width;
+    const fy = (ev.clientY - rect.top) / rect.height;
+    const j = Math.max(0, Math.min(size - 1, Math.floor(fx * size)));
+    const i = Math.max(0, Math.min(size - 1, Math.floor(fy * size)));
+    const idx = i * size + j;
+    const classes = surfaceChip.classes || [];
+    const ndvi = (surfaceChip.ndvi && surfaceChip.ndvi[idx]) || null;
+    showPixelPopup(ev.clientX, ev.clientY, {
+      i,
+      j,
+      cls: classes[idx] || "exposed",
+      ndvi,
+    });
   });
 }
 
@@ -725,7 +859,29 @@ function initScreeningToggle() {
       if (screeningActive) dissolveScreening();
       else cancelReveal();
     }
+    // Keep an open zone panel honest: spectral numbers appear/disappear with
+    // the screening toggle instead of contradicting the toolbar.
+    refreshToolbarNote();
+    refreshZoneTooltips(); refreshMonitorTooltips();
+    renderSpectralCard(activeZone || null);
+    if (activeZone) {
+      renderSpectralPanel(activeZone);
+      renderFinalPanel(activeZone);
+    }
   });
+}
+
+function refreshToolbarNote() {
+  const note = $("spectral-toolbar-note");
+  const toggle = $("toggle-space-layer");
+  if (!note) return;
+  if (toggle && toggle.checked && screeningActive) {
+    note.textContent = "Screening active — halos show similarity to Pyrolusite. Click a zone to analyse it";
+  } else if (toggle && toggle.checked) {
+    note.textContent = "Screening in progress…";
+  } else {
+    note.textContent = "Screening off — zoom into a zone to analyse it";
+  }
 }
 
 function sweepMap(direction) {
@@ -829,12 +985,22 @@ async function runScreeningReveal() {
   if (token !== revealStopToken) { scanTint(false); return; }
   screeningActive = true;
   scanTint(false);
+  refreshToolbarNote();
+  refreshZoneTooltips(); refreshMonitorTooltips();
+  renderSpectralCard(activeZone || null);
+  if (activeZone) {
+    renderSpectralPanel(activeZone);
+    renderFinalPanel(activeZone);
+  }
   setStatus("Spectral screening complete: energy halos show zone-level similarity to Pyrolusite.", "ok");
   setWorkflowStep(2);
 }
 
 function addEnergyHalo(z) {
-  const st = priorityStyle(z.spatial_priority_band);
+  // Halo colour speaks the SAME SPATIAL PROSPECTIVITY scale as the zone orb
+  // it surrounds (green = HIGH, amber = MEDIUM, red = LOW). The label still
+  // carries the spectral similarity tier + %.
+  const st = prospectivityStyle(z);
   const sim = z.spectral_similarity;
   const withheld = sim === null || sim === undefined;
   const radius = 48 + Math.round(((sim || 0) / 100) * 56); // 48..104 px
@@ -893,6 +1059,13 @@ async function dissolveScreening() {
   layers.spectral.clearLayers();
   haloMarkers = [];
   screeningActive = false;
+  refreshToolbarNote();
+  refreshZoneTooltips(); refreshMonitorTooltips();
+  renderSpectralCard(null);
+  if (activeZone) {
+    renderSpectralPanel(activeZone);
+    renderFinalPanel(activeZone);
+  }
   setWorkflowStep(1);
 }
 
@@ -903,18 +1076,22 @@ async function showZoneDetail(zoneId) {
   const r = await fetch(`/api/zones/${zoneId}?veg_demo=1`);
   if (!r.ok) return;
   const z = await r.json();
+  // Stale-guard: if the operator has since clicked another zone, this response
+  // must never overwrite the panel with a different zone's data.
+  if (zoneId !== activeZoneId) return;
   activeZone = z;
-  const tier = confirmationTier(z.spectral_similarity);
   const panel = $("zone-panel");
   if (!panel) return;
-  const status = z.operational_status || "Unavailable";
-  const water = z.water_depth_m === null || z.water_depth_m === undefined
-    ? "Unavailable"
-    : `${z.water_depth_m.toFixed(1)} m`;
-  const equipment = z.pumps_active === null || z.pumps_active === undefined
-    ? "Unavailable"
-    : `${z.pumps_active} pump${z.pumps_active === 1 ? "" : "s"} active`;
-  const scene = z.spectral_scene;
+  const status = zoneStatus(z);
+  const water =
+    z.water_depth_m === null || z.water_depth_m === undefined
+      ? "--"
+      : `${z.water_depth_m.toFixed(1)} m` +
+        (z.pumps_active === null || z.pumps_active === undefined
+          ? ""
+          : " · " + z.pumps_active + " pump" + (z.pumps_active === 1 ? "" : "s"));
+  const impact = z.production_impact || "--";
+  const action = z.recommended_action || "Field sampling / assay validation";
 
   panel.classList.add("is-open");
   panel.setAttribute("aria-hidden", "false");
@@ -926,62 +1103,38 @@ async function showZoneDetail(zoneId) {
   const lat = z.latitude.toFixed(4), lon = z.longitude.toFixed(4);
   $("zp-coords").textContent = `${lat}°N · ${lon}°E`;
 
-  $("zp-operational-status").textContent = status;
+  // OPERATIONAL STATUS (canonical values from the backend). Text-only:
+  // colours on the map always mean mining suitability, never status.
+  const stEl = $("zp-operational-status");
+  stEl.textContent = status;
+  stEl.style.color = "";
+  const impEl = $("zp-production-impact");
+  impEl.textContent = impact;
+  // HIGH = green (most suitable), REVIEW/MEDIUM = amber, LOW = red. Same
+  // suitability scale as the map orbs, so red never means "best" anywhere.
+  impEl.style.color = impactColor(impact);
   $("zp-water").textContent = water;
-  $("zp-equipment").textContent = equipment;
-  $("zp-clearance").textContent = "Not supplied by backend";
-  $("zp-ore").textContent = "No ore-grade measurement in prototype";
+  $("zp-recommended-action").textContent = action;
 
-  // SCORE ROW
+  // SPATIAL PROSPECTIVITY
+  const pros = prospectivityStyle(z);
   $("zp-spatial").textContent = fmt(z.spatial_score, "%");
-  $("zp-spatial-band").textContent = z.spatial_priority_band;
-  $("zp-spatial-band").style.color = priorityColor(z.spatial_priority_band);
+  const zpBand = $("zp-spatial-band");
+  zpBand.textContent = z.spatial_priority_band;
+  // Colour the band on the same green/amber/red prospectivity scale as the pin.
+  zpBand.style.color = pros.color;
   $("zp-spatial-reason").textContent =
     `Spatial screening identifies this as a ${String(z.spatial_priority_band || "unavailable").toLowerCase()} prospectivity zone.`;
 
-  if (z.spectral_similarity === null) {
-    $("zp-spectral").textContent = "N/A";
-    $("zp-spectral-band").textContent = "UNAVAILABLE";
-    $("zp-spectral-band").style.color = "#64748B";
-    $("zp-best-mineral").textContent = "Best Mineral Match: unavailable";
-  } else {
-    const bestName = z.best_mineral_match
-      ? z.best_mineral_match.charAt(0).toUpperCase() + z.best_mineral_match.slice(1)
-      : "N/A";
-    $("zp-spectral").textContent = fmt(z.spectral_similarity, "%");
-    $("zp-spectral-band").textContent = tier.label;
-    $("zp-spectral-band").style.color = tier.color;
-    $("zp-best-mineral").textContent = `Best Mineral Match: ${bestName}`;
-  }
+  // SPECTRAL INTELLIGENCE — gated behind the screening toggle. No spectral
+  // percentages are shown until Spectral Mineral Screening is enabled.
+  renderSpectralPanel(z);
 
-  const sceneTxt = scene
-    ? `${scene.platform} · ${scene.date} · ${scene.scene_id}`
-    : "Sentinel-2 scene metadata unavailable";
-  $("zp-spectral-scene").textContent =
-    `SYNTHETIC DEMO chip · ${z.demo_chip ? `${z.demo_chip.total_pixels} px · seed ${z.demo_chip.seed}` : "no chip meta"} · not a real scene`;
+  // FINAL EXPLORATION PRIORITY — when screening is off this is spatial-only.
+  renderFinalPanel(z);
 
-  $("zp-final").textContent = fmt(z.final_exploration_score, "%");
-  $("zp-priority").textContent = z.priority;
-  $("zp-priority").style.color = priorityColor(z.priority);
-  $("zp-priority").style.borderColor = priorityColor(z.priority);
-
-  // BAND FINGERPRINT (Sentinel-2 4 bands vs Pyrolusite reference)
-  renderFingerprint(z.zone_reflectance);
-
-  // WHY / ACTION
-  $("zp-explanation").textContent = z.explanation;
-  $("zp-action").textContent = "Recommended Action: " + (z.recommended_action || "Field sampling / assay verification");
-
-  // PROVENANCE
-  const prov = provenanceChip(z.data_provenance);
-  const provEl = $("zp-provenance");
-  provEl.textContent = prov.text;
-  provEl.className = "provenance-chip " + prov.cls;
-  $("zp-scientific-note").textContent = z.scientific_note;
-
-  // VEGETATION (NDVI) MASK STATUS
-  $("zp-veg-mask").textContent = vegetationMaskSummary(z.vegetation_mask, true);
-  vegetationChain(z.vegetation_mask, z, true);
+  // BAND FINGERPRINT (Sentinel-2 4 bands vs Pyrolusite reference) is rendered
+  // only when screening is active (renderSpectralPanel does it).
 
   // SYNTHETIC SURFACE RENDERER (RAW SURFACE)
   surfaceMode = "raw";
@@ -1021,8 +1174,71 @@ async function showZoneDetail(zoneId) {
   mountSurfaceOverlay(z);
 
   // Advance workflow strip: 1 spatial done, 2 spectral rendered, 3 fusion computed.
-  // 4 (Field Verification) only lights up when HIGH priority.
-  setWorkflowStep(z.priority === "HIGH" ? 4 : 3);
+  // 4 (Field Verification) only lights up when fused priority is HIGH.
+  const fusedPriority = screeningActive ? z.priority : null;
+  setWorkflowStep(fusedPriority === "HIGH" ? 4 : screeningActive ? 3 : 3);
+}
+
+// Renders the Spectral Intelligence section honouring the screening-toggle gate.
+// Also used to refresh an already-open panel when the toggle flips.
+function renderSpectralPanel(z) {
+  const section = $("zp-spectral-section");
+  const lock = $("zp-spectral-lock");
+  const body = $("zp-spectral-body");
+  if (!section) return;
+  if (!screeningActive) {
+    // Screening OFF: the whole Spectral Intelligence section disappears —
+    // zone popups show only spatial + operational information.
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  if (!lock || !body) return;
+  lock.hidden = true;
+  body.hidden = false;
+  const tier = confirmationTier(z.spectral_similarity);
+  const scene = z.spectral_scene;
+  if (z.spectral_similarity === null) {
+    $("zp-spectral").textContent = "N/A";
+    $("zp-spectral-band").textContent = "SCORE WITHHELD";
+    $("zp-spectral-band").style.color = "#64748B";
+    $("zp-best-mineral").textContent = "Best Mineral Match: reference unavailable";
+  } else {
+    const bestName = z.best_mineral_match
+      ? z.best_mineral_match.charAt(0).toUpperCase() + z.best_mineral_match.slice(1)
+      : "N/A";
+    $("zp-spectral").textContent = fmt(z.spectral_similarity, "%");
+    $("zp-spectral-band").textContent = tier.label;
+    $("zp-spectral-band").style.color = tier.color;
+    $("zp-best-mineral").textContent = `Best Mineral Match: ${bestName}`;
+  }
+  $("zp-spectral-scene").textContent = scene
+    ? `${scene.platform} · ${scene.date} · ${scene.scene_id} · tile ${scene.tile || "--"} · cloud ${scene.cloud_cover_pct != null ? scene.cloud_cover_pct + "%" : "--"}`
+    : "Sentinel-2 L2A scene metadata unavailable";
+  renderFingerprint(z.zone_reflectance);
+  const prov = provenanceChip(z.data_provenance);
+  const provEl = $("zp-provenance");
+  provEl.textContent = prov.text;
+  provEl.className = "provenance-chip " + prov.cls;
+}
+
+// Final priority: full spatial+spectral fusion when screening is on, otherwise
+// an explicitly-labelled spatial-only estimate (no hidden spectral influence).
+function renderFinalPanel(z) {
+  $("zp-priority").style.color = "";
+  $("zp-priority").style.borderColor = "";
+  if (!screeningActive) {
+    $("zp-final").textContent = fmt(z.spatial_score, "%");
+    $("zp-priority").textContent = "SPATIAL-ONLY";
+    $("zp-explanation").textContent =
+      `Screening inactive — priority shown from spatial data alone. Enable Spectral Mineral Screening for the fused ${z.spatial_priority_band} evaluation.`;
+    $("zp-action").textContent = z.recommended_action || "Field sampling / assay validation";
+    return;
+  }
+  $("zp-final").textContent = fmt(z.final_exploration_score, "%");
+  $("zp-priority").textContent = z.priority;
+  $("zp-explanation").textContent = z.explanation;
+  $("zp-action").textContent = z.recommended_action || "Field sampling / assay validation";
 }
 
 // Renders four horizontal bars per band, showing the zone reflectance vs pyrolusite reference.
@@ -1139,13 +1355,7 @@ function deriveBannerState(predicted, target, recovered, planExecuted, mitigatio
     simState = planExecuted || mitigationCount > 0 ? "MITIGATING" : "UNMITIGATED RISK";
   }
   const gap = effective - tgt;
-  const rate = 3808.49; // MN rate ₹/ton (kept in sync for the live preview only)
-  if (gap < 0) {
-    return { tier, bannerClass, headline, simState, gap, shortfall: Math.max(0, -gap),
-      ledgerLabel: "Rupee Loss Ledger", ledgerAmount: -gap * rate, ledgerClass: "text-red" };
-  }
-  return { tier, bannerClass, headline, simState, gap, shortfall: 0,
-    ledgerLabel: "Rupee Gain Ledger", ledgerAmount: gap * rate, ledgerClass: "text-green" };
+  return { tier, bannerClass, headline, simState, gap, shortfall: Math.max(0, -gap) };
 }
 
 function applyBannerState(state) {
@@ -1159,12 +1369,14 @@ function applyBannerState(state) {
     label.textContent = state.headline +
       (state.shortfall > 0 ? `: ${fmtNum(state.shortfall)} MT DEFICIT PREDICTED` : "");
   }
-  const ledgerLabel = document.getElementById("hero-loss-label");
-  if (ledgerLabel) ledgerLabel.textContent = state.ledgerLabel;
-  const ledgerVal = document.getElementById("hero-loss-val");
-  if (ledgerVal) {
-    ledgerVal.textContent = `₹${fmtNum(state.ledgerAmount / 1e7, 2)} Cr`;
-    ledgerVal.className = `hero-sub-value ${state.ledgerClass}`;
+  if (state.ledgerLabel !== undefined && state.ledgerAmount !== undefined) {
+    const ledgerLabel = document.getElementById("hero-loss-label");
+    if (ledgerLabel) ledgerLabel.textContent = state.ledgerLabel;
+    const ledgerVal = document.getElementById("hero-loss-val");
+    if (ledgerVal) {
+      ledgerVal.textContent = `₹${fmtNum(state.ledgerAmount / 1e7, 2)} Cr`;
+      ledgerVal.className = `hero-sub-value ${state.ledgerClass || "text-red"}`;
+    }
   }
   const sim = document.getElementById("hero-sim-state");
   if (sim) sim.textContent = state.simState;
@@ -1930,30 +2142,18 @@ function renderXai(data) {
   const xaiSection = document.getElementById("xai-explanation-section");
   if (!xaiSection) return;
 
+  const confBadge = document.getElementById("xai-conf-badge");
   const conf = data && data.confidence_pct != null && isFinite(Number(data.confidence_pct))
     ? Number(data.confidence_pct)
     : NaN;
 
+  if (confBadge) {
+    confBadge.textContent = isFinite(conf)
+      ? `Confidence: ${conf.toFixed(1)}%`
+      : "Confidence: Calculating...";
+  }
+
   xaiSection.innerHTML = "";
-
-  const header = document.createElement("div");
-  header.className = "card-header-bar";
-  header.style.marginBottom = "12px";
-
-  const headerTitle = document.createElement("div");
-  headerTitle.className = "card-header-title";
-  headerTitle.innerHTML = "<span>🧠</span> Explainable AI";
-
-  const confPill = document.createElement("span");
-  confPill.className = "conf-pill";
-  confPill.id = "xai-conf-badge";
-  confPill.textContent = isFinite(conf)
-    ? `Confidence: ${conf.toFixed(1)}%`
-    : "Confidence: Calculating...";
-
-  header.appendChild(headerTitle);
-  header.appendChild(confPill);
-  xaiSection.appendChild(header);
 
   const chart = document.createElement("div");
   chart.className = "xai-explanation-chart";
@@ -1962,14 +2162,15 @@ function renderXai(data) {
     ? data.xai_chart_data
     : [
         { factor: "Rainfall", value: 54 },
-        { factor: "Satellite Soil Moisture", value: 36 },
+        { factor: "Soil Moisture", value: 36 },
         { factor: "Equipment Downtime", value: 8 },
-        { factor: "Blast Delay", value: 2 },
-        { factor: "Others", value: 2 },
+        { factor: "Blast Delay", value: 1 },
+        { factor: "Labor Drop", value: 0 },
+        { factor: "Ore Quality", value: 1 },
       ];
 
   const normalizedChartData = chartData.map((row) => ({
-    factor: String(row.factor || "Other factor"),
+    factor: String(row.factor || row.name || "Other factor"),
     value: clampPct(Number(row.value) || 0),
   }));
 
@@ -2014,10 +2215,10 @@ function renderXai(data) {
     ? data.xai_bullet_reasons
     : [
         "Rainfall is the main driver and slows the pit route.",
-        "Satellite soil moisture adds extra water pressure on the working face.",
-        "Equipment downtime reduces effective haul and loading capacity.",
-        "Blast delay slows the ore feed and recovery window.",
-        "Other plan and quality factors explain the remaining shortfall.",
+        "Soil Moisture adds haulage and loading drag.",
+        "Equipment Downtime constrains ore handling and recovery capacity.",
+        "Blast Delay explains the remaining shortfall profile.",
+        "Labor Drop and Ore Quality remain part of the diagnostic mix.",
       ];
   reasons.slice(0, 5).forEach((reason) => {
     const item = document.createElement("li");
@@ -2044,96 +2245,311 @@ async function loadXai() {
       narrative: null,
       xai_chart_data: [
         { factor: "Rainfall", value: 54 },
-        { factor: "Satellite Soil Moisture", value: 36 },
+        { factor: "Soil Moisture", value: 36 },
         { factor: "Equipment Downtime", value: 8 },
-        { factor: "Blast Delay", value: 2 },
-        { factor: "Others", value: 2 },
+        { factor: "Blast Delay", value: 1 },
+        { factor: "Labor Drop", value: 0 },
+        { factor: "Ore Quality", value: 1 },
       ],
       xai_bullet_reasons: [
         "Rainfall is the main driver and slows the pit route.",
-        "Satellite soil moisture adds extra water pressure on the working face.",
-        "Equipment downtime reduces effective haul and loading capacity.",
-        "Blast delay slows the ore feed and recovery window.",
-        "Other plan and quality factors explain the remaining shortfall.",
+        "Soil Moisture adds haulage and loading drag.",
+        "Equipment Downtime constrains ore handling and recovery capacity.",
+        "Blast Delay explains the remaining shortfall profile.",
+        "Labor Drop and Ore Quality remain part of the diagnostic mix.",
       ],
     });
   }
 }
 
-// ---------------- SPECTRAL ----------------
-function drawSpectralChart(data) {
-  const canvas = document.getElementById("spectralCanvas");
-  if (!canvas || !canvas.getContext) return;
-  const ctx = canvas.getContext("2d");
-  const wavelengths = data.wavelengths_um || {};
-  const live = data.live_reflectance || {};
-  const reference = data.reference_reflectance || {};
-  const keys = Object.keys(wavelengths).filter(
-    (k) => isFinite(Number(wavelengths[k])) && isFinite(Number(live[k])),
-  );
-  if (keys.length < 2) return;
+// ---------------- SPECTRAL ---------------
+// The dynamic spectral card always reflects the SELECTED zone (map dot, orb,
+// pit-grid card or expanded-map zone all funnel through onZoneSelect). With
+// no selection it shows an explicit "SELECT A ZONE" state.
 
-  const W = canvas.width;
-  const H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-
-  const xs = keys.map((k) => Number(wavelengths[k]));
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const allVals = keys
-    .flatMap((k) => [Number(live[k]), Number(reference[k])])
-    .filter(isFinite);
-  const minV = Math.min(...allVals, 0);
-  const maxV = Math.max(...allVals, 0.0001);
-
-  const px = (x) => ((x - minX) / (maxX - minX || 1)) * (W - 16) + 8;
-  const py = (v) => H - 10 - ((v - minV) / (maxV - minV || 1)) * (H - 18);
-
-  const drawLine = (series, color, width) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    keys.forEach((k, i) => {
-      const x = px(Number(wavelengths[k]));
-      const y = py(Number(series[k]));
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  };
-
-  drawLine(reference, "#94A3B8", 1.5);
-  drawLine(live, "#06B6D4", 2);
+function spectralZoneShortName(zone) {
+  const name = zone && zone.name ? String(zone.name) : "";
+  const m = name.match(/^Zone \w/i);
+  return (m && m[0]) || (zone && zone.zone_id) || "ZONE";
 }
 
-function renderSpectral(data) {
-  const sim = Number(data.similarity);
-  const title = document.getElementById("spectral-title");
-  if (title) {
-    title.textContent = `${isFinite(sim) ? (sim * 100).toFixed(2) : "--"}% ${(data.label || "SPECTRAL SIMILARITY").toUpperCase()}`;
+function renderSpectralCard(zone) {
+  const card = $("spectral-card");
+  const filled = $("spectral-filled");
+  const empty = $("spectral-empty");
+  // The screening toggle is the single source of truth for whether ANY
+  // spectral intelligence is visible. Screening OFF hides the card entirely,
+  // so no stale spectral values can linger from a previous selection.
+  if (!screeningActive) {
+    if (card) card.hidden = true;
+    if (filled) filled.hidden = true;
+    if (empty) empty.hidden = true;
+    return;
   }
-  const tags = document.getElementById("spectral-tags");
+  if (card) card.hidden = false;
+  if (empty) empty.hidden = false;
+  if (filled) filled.hidden = true;
+  // Screening ON + no zone selected: compact prompt, not a big empty panel.
+  if (!zone) return;
+  if (empty) empty.hidden = true;
+  if (filled) filled.hidden = false;
+
+  const sim = zone.spectral_similarity;
+  const scored = sim !== null && sim !== undefined && isFinite(Number(sim));
+  const tier = confirmationTier(scored ? Number(sim) : null);
+  const bestName = zone.best_mineral_match
+    ? zone.best_mineral_match.charAt(0).toUpperCase() + zone.best_mineral_match.slice(1)
+    : "—";
+
+  if ($("spectral-pct")) $("spectral-pct").textContent = scored ? Number(sim).toFixed(2) : "N/A";
+  if ($("spectral-zone")) $("spectral-zone").textContent = `${zone.zone_id} · ${zone.name || "Zone"}`;
+  if ($("spectral-title")) {
+    $("spectral-title").textContent = scored ? "PYROLUSITE SPECTRAL SIMILARITY" : "ZONE SPECTRAL SCREENING";
+  }
+  const tierEl = $("spectral-tier");
+  if (tierEl) {
+    tierEl.textContent = scored ? `${tier.label} · BEST MATCH: ${bestName}` : `SCORE WITHHELD · BEST MATCH: ${bestName}`;
+    tierEl.style.color = scored ? tier.color : "#94A3B8";
+  }
+
+  // Metadata tags (all from the selected zone's canonical record).
+  const tags = $("spectral-tags");
   if (tags) {
     tags.innerHTML = "";
-    const scene = data.scene || {};
-    const parts = [];
-    if (scene.satellite_sensor) parts.push(scene.satellite_sensor);
-    if (scene.tile) parts.push(scene.tile);
-    if (scene.date) parts.push(scene.date);
-    if (scene.cloud_cover_pct != null) parts.push(`Cloud cover ${scene.cloud_cover_pct}%`);
-    if (data.spectral_potential) parts.push(`${data.spectral_potential} potential`);
-    if (data.interpretation) parts.push(data.interpretation);
-    parts.forEach((text) => {
-      const s = document.createElement("span");
-      s.className = "spec-tag";
-      s.textContent = text;
-      tags.appendChild(s);
-    });
+    const scene = zone.spectral_scene || {};
+    const meta = [];
+    if (scene.platform) meta.push(scene.platform);
+    if (scene.date) meta.push(scene.date);
+    if (scene.scene_id) meta.push(scene.scene_id);
+    if (scene.tile) meta.push(`tile ${scene.tile}`);
+    if (scene.cloud_cover_pct != null) meta.push(`cloud ${scene.cloud_cover_pct}%`);
+    const sceneTag = meta.join(" · ").trim();
+    if (sceneTag) tags.appendChild(specTag(sceneTag));
+    tags.appendChild(specTag(`Reference: Pyrolusite (USGS splib05a)`));
+    if (zone.reflectance_source_tag) tags.appendChild(specTag(zone.reflectance_source_tag));
   }
-  drawSpectralChart(data);
+
+  // Description — zone-specific and data-driven, never fabricated.
+  const desc = $("spectral-desc");
+  if (desc) {
+    if (scored) {
+      const bandList = SENTINEL_BANDS.map((b) => b.id).join("/");
+      desc.textContent =
+        `${zone.name} registers ${Number(sim).toFixed(2)}% spectral similarity to the Pyrolusite reference ` +
+        `across Sentinel-2 bands ${bandList} (normalized cosine similarity). ` +
+        `Combined with ${zone.spatial_score != null ? zone.spatial_score + "%" : "the"} spatial prospectivity rating, this zone evaluates as ${String(zone.priority || "no fused priority").toUpperCase()}.`;
+    } else {
+      const maskReason =
+        zone.vegetation_mask && zone.vegetation_mask.reason
+          ? String(zone.vegetation_mask.reason).trim()
+          : "insufficient exposed surface after vegetation masking";
+      desc.textContent =
+        `No zone-level spectral score is emitted for ${zone.name}: ${maskReason.replace(/\.+$/, "")}. ` +
+        `The Pyrolusite reference line is shown for comparison only — no spectrum is fabricated.`;
+    }
+  }
+
+  const prov = $("spectral-provenance");
+  if (prov) prov.textContent = provenanceChip(zone.data_provenance).text;
+
+  renderSignatureGraph(scored ? zone.zone_reflectance : null);
+}
+
+function specTag(text) {
+  const s = document.createElement("span");
+  s.className = "spec-tag";
+  s.textContent = text;
+  return s;
+}
+
+// SPECTRAL SIGNATURE COMPARISON: selected zone spectrum vs Pyrolusite
+// reference across Sentinel-2 bands, with a wavelength (X) and normalized
+// reflectance (Y) axis. Drawn as SVG using existing band data only.
+function renderSignatureGraph(zoneReflectance) {
+  const svg = $("spectral-svg");
+  if (!svg) return;
+  const W = 600, H = 220;
+  const padL = 46, padR = 14, padT = 18, padB = 38;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const n = SENTINEL_BANDS.length;
+
+  const hasZone = !!zoneReflectance &&
+    SENTINEL_BANDS.every((b) => isFinite(Number(zoneReflectance[b.id])));
+  const zoneVals = hasZone ? SENTINEL_BANDS.map((b) => Number(zoneReflectance[b.id])) : null;
+  const refVals = SENTINEL_BANDS.map((b) => Number(PYROLUSITE_REF[b.id]));
+  const maxVal = Math.max(...refVals, ...(zoneVals || [])) * 1.08;
+  const x = (i) => padL + (i / (n - 1)) * iw;
+  const y = (v) => padT + ih - (Math.max(0, v) / maxVal) * ih;
+
+  let out = "";
+
+  // Y gridlines + tick labels (normalized reflectance 0..1).
+  for (let k = 0; k <= 4; k++) {
+    const frac = k / 4;
+    const gy = padT + ih - frac * ih;
+    out += `<line x1="${padL}" y1="${gy}" x2="${padL + iw}" y2="${gy}" stroke="#1E293B" stroke-width="1" stroke-dasharray="${k === 0 ? "0" : "3 5"}"/>`;
+    out += `<text x="${padL - 7}" y="${gy + 3.5}" fill="#64748B" font-size="9.5" text-anchor="end">${String(frac)}</text>`;
+  }
+
+  // X axis: band labels + central wavelengths.
+  out += `<line x1="${padL}" y1="${padT + ih}" x2="${padL + iw}" y2="${padT + ih}" stroke="#334155" stroke-width="1"/>`;
+  SENTINEL_BANDS.forEach((b, i) => {
+    const bx = x(i);
+    out += `<text x="${bx}" y="${padT + ih + 16}" fill="#CBD5E1" font-size="10" font-weight="700" text-anchor="middle">${b.label}</text>`;
+    out += `<text x="${bx}" y="${padT + ih + 30}" fill="#64748B" font-size="8.5" text-anchor="middle">λ ${b.nm}</text>`;
+  });
+
+  // Axes captions.
+  out += `<text x="${padL + iw / 2}" y="${H - 2}" fill="#64748B" font-size="8.5" text-anchor="middle">SENTINEL-2 BAND / WAVELENGTH</text>`;
+  out += `<text x="12" y="${padT + ih / 2}" fill="#64748B" font-size="8.5" text-anchor="middle" transform="rotate(-90 12 ${padT + ih / 2})">NORMALIZED REFLECTANCE</text>`;
+
+  const polyline = (vals, color, width, dash, series) => {
+    const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    out += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="${width}" ${dash ? `stroke-dasharray="${dash}"` : ""}/>`;
+    vals.forEach((v, i) => {
+      out += `<circle class="sig-pt ${series === "zone" ? "sig-pt-zone" : "sig-pt-ref"}" data-i="${i}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.6" fill="#0B1322" stroke="${color}" stroke-width="1.8"/>`;
+    });
+  };
+
+  const refColor = "#A78BFA";
+  const zoneColor = "#22D3EE";
+
+  if (hasZone && zoneVals) {
+    polyline(refVals, refColor, 1.6, "5 4", "ref");
+    polyline(zoneVals, zoneColor, 2.4, null, "zone");
+    // Normalized values beside each marker (y-axis is normalized reflectance).
+    zoneVals.forEach((v, i) => {
+      out += `<text x="${x(i)}" y="${y(v) - 8}" fill="${zoneColor}" font-size="8.5" font-weight="700" text-anchor="middle">${(v / maxVal).toFixed(2)}</text>`;
+    });
+    refVals.forEach((v, i) => {
+      out += `<text x="${x(i)}" y="${y(v) + 15}" fill="${refColor}" font-size="8" text-anchor="middle">${(v / maxVal).toFixed(2)}</text>`;
+    });
+  } else {
+    polyline(refVals, refColor, 1.6, "5 4", "ref");
+    out += `<text x="${padL + iw / 2}" y="${padT + ih / 2}" fill="#94A3B8" font-size="11" font-weight="700" text-anchor="middle">ZONE SPECTRUM WITHHELD — NO FABRICATED LINE</text>`;
+  }
+
+  // Invisible per-band hover columns spanning the whole plot area, so
+  // hovering anywhere over a band shows the wavelength + reflectance values.
+  SENTINEL_BANDS.forEach((b, i) => {
+    out += `<rect class="sig-hit" data-i="${i}" x="${(x(i) - 16).toFixed(1)}" y="${padT}" width="32" height="${ih}"/>`;
+  });
+
+  svg.innerHTML = out;
+  svg._sigData = {
+    zoneVals: hasZone ? zoneVals.map((v) => (v / maxVal).toFixed(3)) : null,
+    refVals: refVals.map((v) => (v / maxVal).toFixed(3)),
+  };
+  wireSignatureTooltip(svg);
+}
+
+// One dark, cursor-following tooltip for the signature graph. Hovering a band
+// (or either of its zone/reference points) shows the band name, wavelength and
+// both reflectance values - the two spectra stay colour-distinguishable.
+function wireSignatureTooltip(svg) {
+  if (!svg || svg._sigTooltipWired) return;
+  svg._sigTooltipWired = true;
+  const chart = svg.parentElement;
+  let tip = $("sig-tooltip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "sig-tooltip";
+    tip.className = "sig-tooltip";
+    tip.hidden = true;
+    chart.appendChild(tip);
+  }
+  const move = "mousemove",
+    leave = "mouseleave";
+  svg.addEventListener(move, (ev) => {
+    const data = svg._sigData;
+    if (!data) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 40) return;
+    const scaleX = rect.width / 600;
+    const scaleY = rect.height / 220;
+    const vx = (ev.clientX - rect.left) / scaleX;
+    const vy = (ev.clientY - rect.top) / scaleY;
+    const padL = 46, iw = 600 - padL - 14;
+    if (vx < padL || vx > padL + iw) { tip.hidden = true; return; }
+    const idx = Math.max(0, Math.min(SENTINEL_BANDS.length - 1,
+      Math.round(((vx - padL) / iw) * (SENTINEL_BANDS.length - 1))));
+    const b = SENTINEL_BANDS[idx];
+    const zoneVal = data.zoneVals ? data.zoneVals[idx] : null;
+    tip.innerHTML =
+      `<div class="sig-tip-head"><span class="sig-tip-band">${b.label}</span><span class="sig-tip-nm">λ ${b.nm}</span></div>` +
+      `<div class="sig-tip-row"><i class="sig-swatch" style="background:#22D3EE"></i><span>Selected zone</span><strong>${zoneVal != null ? zoneVal : "—"}</strong></div>` +
+      `<div class="sig-tip-row"><i class="sig-swatch" style="background:#A78BFA"></i><span>Pyrolusite ref</span><strong>${data.refVals[idx]}</strong></div>` +
+      `<div class="sig-tip-note">Normalized reflectance · hover another band</div>`;
+    tip.hidden = false;
+    const cr = chart.getBoundingClientRect();
+    const tw = tip.offsetWidth || 180;
+    const th = tip.offsetHeight || 74;
+    let left = (ev.clientX - cr.left) + 16;
+    if (left + tw > cr.width - 6) left = (ev.clientX - cr.left) - tw - 16;
+    let top = (ev.clientY - cr.top) + 14;
+    if (top + th > cr.height - 6) top = (ev.clientY - cr.top) - th - 14;
+    tip.style.left = Math.max(4, left) + "px";
+    tip.style.top = Math.max(4, top) + "px";
+  });
+  svg.addEventListener(leave, () => { if (tip) tip.hidden = true; });
 }
 
 // ---------------- PIT GRID ----------------
+// Simulated borehole-style monitoring readings. Values derive from the real
+// synthetic chip NDVI where available; everything else is clearly SIM-tagged.
+function monitoringSim(zone, pocket) {
+  const ndviArr =
+    zone && zone.demo_chip && Array.isArray(zone.demo_chip.ndvi) && zone.demo_chip.ndvi.length
+      ? zone.demo_chip.ndvi
+      : null;
+  let ndvi;
+  if (ndviArr && ndviArr.length) {
+    ndvi = (ndviArr.reduce((a, b) => a + b, 0) / ndviArr.length).toFixed(2);
+  } else {
+    const salt = zone && zone.zone_id ? zone.zone_id.charCodeAt(zone.zone_id.length - 1) : 0;
+    ndvi = (0.10 + (salt % 4) * 0.05).toFixed(2);
+  }
+  const zoneW = zone && zone.water_depth_m != null ? Number(zone.water_depth_m) : null;
+  const wd = pocket && pocket.water_depth_m != null ? Number(pocket.water_depth_m) : zoneW;
+  const moisture = wd == null ? "LOW" : wd >= 3 ? "HIGH" : wd >= 0.5 ? "MODERATE" : "LOW";
+  const rawStatus = String((pocket && pocket.status) || (zone && zone.operational_status) || "").toLowerCase();
+  const isAnomaly = /anomal/i.test(rawStatus);
+  const sim =
+    zone && typeof zone.spectral_similarity === "number" ? zone.spectral_similarity : null;
+  const simPct = sim !== null ? (sim > 1 ? sim : sim * 100) : null;
+  let deviation;
+  let confidence;
+  if (isAnomaly || simPct === null) {
+    deviation = "+23%";
+    confidence = 81;
+  } else {
+    deviation = "+" + Math.max(0.1, 100 - simPct).toFixed(1) + "%";
+    confidence = Math.round(simPct * 0.9);
+  }
+  return { ndvi, moisture, deviation, confidence };
+}
+
+function monitorTooltipHtml(idx, p, zone) {
+  const sim = monitoringSim(zone, p);
+  const title = p.name || (zone && zone.name) || `Monitoring Point ${idx + 1}`;
+  return (
+    `<div class="monitor-tip">` +
+    `<div class="monitor-tip-head">` +
+    `<span class="monitor-tip-title">Monitoring Point ${String(idx + 1).padStart(2, "0")}</span>` +
+    `<span class="monitor-sim-tag">SIM</span>` +
+    `</div>` +
+    `<div class="monitor-tip-sub">${title}</div>` +
+    `<div class="monitor-tip-meta">` +
+    `<div><span>NDVI</span><strong>${sim.ndvi}</strong></div>` +
+    `<div><span>Surface moisture</span><strong>${sim.moisture}</strong></div>` +
+    (screeningActive ? `<div><span>Spectral deviation</span><strong>${sim.deviation}</strong></div>` : "") +
+    (screeningActive ? `<div><span>Risk confidence</span><strong>${sim.confidence}%</strong></div>` : "") +
+    `</div>` +
+    `<div class="monitor-tip-note">Simulated demo reading — not a real satellite observation.</div>` +
+    `</div>`
+  );
+}
+
 function renderPitGrid(pockets) {
   const grid = document.getElementById("pit-telemetry-grid");
   if (!grid) return;
@@ -2153,49 +2569,225 @@ function renderPitGrid(pockets) {
     return;
   }
   pockets.forEach((p) => {
+    // Every value shown here comes from the canonical zone record exposed by
+    // the backend (constants.CANDIDATE_ZONES -> /api/telemetry). The front end
+    // never re-derives status/impact/action.
+    const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id);
+    const status = zoneStatus(zone || { status: p.status });
+    const st = STATUS_META[status] || STATUS_META["UNDER INVESTIGATION"];
+    const wd = p.water_depth_m;
+    const pumps = p.pumps_active;
+    const impact = p.production_impact || (zone && zone.production_impact) || "LOW";
+    const action = p.recommended_action || (zone && zone.recommended_action) || "Review & investigate";
+
     const box = document.createElement("div");
     box.className = "pit-box";
+    box.dataset.zoneId = p.id || "";
+    box.setAttribute("role", "button");
+    box.tabIndex = 0;
+    box.setAttribute("aria-label", `Select ${p.name || p.id || "zone"}`);
+    box.addEventListener("click", () => {
+      const z = (zonesCache || []).find((zz) => zz.zone_id === p.id);
+      if (z) onZoneSelect(z);
+    });
+    box.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); box.click(); }
+    });
+
     const name = document.createElement("div");
     name.className = "pit-name";
-    name.textContent = p.name || p.pocket_id || p.id || "Pit";
+    name.textContent = p.name || zone.name || p.id || "Pit";
     box.appendChild(name);
 
-    const grade = Number(p.grade_pct);
-    const st = document.createElement("div");
-    if (isFinite(grade)) {
-      if (grade >= 44) {
-        st.className = "pit-state success";
-        st.textContent = `${grade}% Mn · HIGH GRADE`;
-      } else if (grade >= 34) {
-        st.className = "pit-state warning";
-        st.textContent = `${grade}% Mn · MEDIUM GRADE`;
-      } else {
-        st.className = "pit-state danger";
-        st.textContent = `${grade}% Mn · LOW GRADE`;
-      }
-    } else if (p.status) {
-      st.className = "pit-state warning";
-      st.textContent = String(p.status).toUpperCase();
-    } else {
-      st.className = "pit-state warning";
-      st.textContent = "Telemetry pending";
-    }
-    box.appendChild(st);
+    const stEl = document.createElement("div");
+    stEl.className = "pit-state";
+    stEl.textContent = status;
+    stEl.style.color = st.color;
+    box.appendChild(stEl);
 
-    const subText = p.mine_name || p.mine || null;
-    if (p.water_depth_m != null) {
-      const sub = document.createElement("div");
-      sub.className = "pit-subdetail";
-      sub.textContent = `Water depth: ${p.water_depth_m} m`;
-      box.appendChild(sub);
-    } else if (subText) {
-      const sub = document.createElement("div");
-      sub.className = "pit-subdetail";
-      sub.textContent = subText;
-      box.appendChild(sub);
+    const meta = document.createElement("div");
+    meta.className = "pit-meta";
+
+    let waterLine = "Water condition: --";
+    if (wd != null) {
+      waterLine = `Water condition: ${Number(wd).toFixed(1)} m`;
+      if (pumps != null) waterLine += ` · ${pumps} pump${pumps === 1 ? "" : "s"}`;
     }
+    meta.appendChild(metaRow(waterLine));
+    const impRow = metaRow("Production impact: ");
+    const impVal = document.createElement("strong");
+    impVal.textContent = impact;
+    impVal.style.color = impactColor(impact);
+    impRow.appendChild(impVal);
+    meta.appendChild(impRow);
+    box.appendChild(meta);
+
+    const act = document.createElement("div");
+    act.className = "pit-action";
+    act.textContent = "→ " + action;
+    box.appendChild(act);
+
     grid.appendChild(box);
   });
+  applySelectedHighlights();
+}
+
+function metaRow(text) {
+  const div = document.createElement("div");
+  div.className = "pit-meta-row";
+  div.textContent = text;
+  return div;
+}
+
+// ---------------- EXPANDED MAP MODAL ----------------
+let expandMapOpen = false;
+let expandSavedView = null;
+let expandOriginalParent = null;
+let expandWired = false;
+
+function openExpandedMap() {
+  const modal = document.getElementById("map-expand-modal");
+  const body = document.getElementById("map-modal-body");
+  const wrap = document.querySelector(".map-frame-wrap");
+  if (!modal || !body || !wrap || expandMapOpen) return;
+  expandOriginalParent = wrap.parentElement;
+  expandSavedView = map ? [map.getCenter(), map.getZoom()] : null;
+  body.appendChild(wrap);
+  modal.hidden = false;
+  expandMapOpen = true;
+  document.body.classList.add("map-expanded-open");
+  const closeBtn = document.getElementById("btn-close-expanded-map");
+  if (closeBtn) closeBtn.focus();
+  if (map) {
+    map.invalidateSize();
+    requestAnimationFrame(() => map.invalidateSize());
+    map.flyTo([21.845, 80.232], Math.max(map.getZoom(), 15), { duration: 0.9 });
+  }
+}
+
+function closeExpandedMap() {
+  const modal = document.getElementById("map-expand-modal");
+  const wrap = document.querySelector(".map-frame-wrap");
+  if (!modal || !wrap || !expandMapOpen) return;
+  hideExpandedZoneCard();
+  modal.hidden = true;
+  if (expandOriginalParent && expandOriginalParent !== modal) {
+    expandOriginalParent.appendChild(wrap);
+  }
+  expandMapOpen = false;
+  document.body.classList.remove("map-expanded-open");
+  if (map) {
+    if (expandSavedView) map.setView(expandSavedView[0], expandSavedView[1], { animate: false });
+    map.invalidateSize();
+    requestAnimationFrame(() => map.invalidateSize());
+  }
+  const btn = document.getElementById("btn-expand-map");
+  if (btn) btn.focus();
+}
+
+// ---------------- EXPANDED-MODE ZONE MINI CARD ----------------
+// In expanded view, clicking a zone opens a small card anchored near the zone
+// marker instead of covering the map with the full panel.
+let expandedCardZone = null;
+let expandedCardWired = false;
+
+function showExpandedZoneCard(z) {
+  const card = document.getElementById("expanded-zone-card");
+  const body = document.getElementById("map-modal-body");
+  if (!card || !body || !expandMapOpen) return;
+  expandedCardZone = z;
+  const status = zoneStatus(z);
+  const st = STATUS_META[status] || STATUS_META["UNDER INVESTIGATION"];
+  const water =
+    z.water_depth_m == null ? "--" : `${Number(z.water_depth_m).toFixed(1)} m`;
+  const impact = z.production_impact || "LOW";
+  const action = z.recommended_action || "Review & investigate";
+  const sim = z.spectral_similarity;
+  const simLine =
+    screeningActive && sim != null
+      ? `<div class="ezc-row"><span>Spectral</span><strong>${fmt(sim, "%")} · ${confirmationTier(sim).label}</strong></div>`
+      : "";
+  card.innerHTML =
+    `<div class="ezc-head">` +
+    `<span class="ezc-status" style="color:${st.color}">${status}</span>` +
+    `<button type="button" class="ezc-close" id="ezc-close" aria-label="Close zone card">×</button>` +
+    `</div>` +
+    `<div class="ezc-title">${z.name || z.zone_id}</div>` +
+    `<div class="ezc-rows">` +
+    `<div class="ezc-row"><span>Water condition</span><strong>${water}</strong></div>` +
+    `<div class="ezc-row"><span>Production impact</span><strong style="color:${impactColor(impact)}">${impact}</strong></div>` +
+    `<div class="ezc-row"><span>Recommended action</span><strong>${action}</strong></div>` +
+    simLine +
+    `</div>` +
+    `<div class="ezc-foot">SYNTHETIC DEMO zone data</div>`;
+  card.hidden = false;
+  const closeBtn = document.getElementById("ezc-close");
+  if (closeBtn) {
+    closeBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      hideExpandedZoneCard();
+    };
+  }
+  wireExpandedCardReposition();
+  positionExpandedZoneCard(z);
+}
+
+function hideExpandedZoneCard() {
+  const card = document.getElementById("expanded-zone-card");
+  if (card) card.hidden = true;
+  expandedCardZone = null;
+}
+
+function positionExpandedZoneCard(z) {
+  const card = document.getElementById("expanded-zone-card");
+  const body = document.getElementById("map-modal-body");
+  if (!card || !body || !map || card.hidden) return;
+  const pt = map.latLngToContainerPoint([z.latitude, z.longitude]);
+  const bw = body.clientWidth || 800;
+  const bh = body.clientHeight || 600;
+  const cw = card.offsetWidth || 264;
+  const ch = card.offsetHeight || 130;
+  let left = pt.x + 16;
+  if (left + cw > bw - 8) left = Math.max(8, pt.x - cw - 16);
+  let top = pt.y - ch / 2;
+  top = Math.max(8, Math.min(top, bh - ch - 8));
+  card.style.left = left + "px";
+  card.style.top = top + "px";
+}
+
+function wireExpandedCardReposition() {
+  if (expandedCardWired || !map) return;
+  expandedCardWired = true;
+  map.on("move zoom", () => {
+    if (expandMapOpen && expandedCardZone) positionExpandedZoneCard(expandedCardZone);
+  });
+  map.on("click", (ev) => {
+    if (!expandMapOpen) return;
+    const el = ev.originalEvent && ev.originalEvent.target;
+    if (el && el.closest && el.closest(".zone-orb, .energy-halo, .telemetry-dot")) return;
+    hideExpandedZoneCard();
+  });
+}
+
+function initExpandMap() {
+  if (expandWired) return;
+  expandWired = true;
+  const btn = document.getElementById("btn-expand-map");
+  const closeBtn = document.getElementById("btn-close-expanded-map");
+  const modal = document.getElementById("map-expand-modal");
+  if (btn) btn.addEventListener("click", openExpandedMap);
+  if (closeBtn) closeBtn.addEventListener("click", closeExpandedMap);
+  if (modal) {
+    modal.addEventListener("click", (event) => {
+      if (event.target.classList && event.target.classList.contains("map-modal-backdrop")) closeExpandedMap();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (expandMapOpen && event.key === "Escape") {
+        event.stopPropagation();
+        closeExpandedMap();
+      }
+    });
+  }
 }
 
 // ---------------- TELEMETRY ----------------
@@ -2210,30 +2802,56 @@ async function loadTelemetry() {
     if (clock && !isNaN(t.getTime())) clock.textContent = t.toISOString().substr(11, 8) + " UTC";
     initMap(data.center);
 
-    if (map && layers.telemetry) {
+    // Dots need their zone's prospectivity band to pick the right colour, so
+    // they are only painted once the zones cache is ready (init reloads
+    // telemetry immediately after loadZones). Before that we skip dots so the
+    // map never shows a mismatched or placeholder colour flash.
+    const zonesReady = (zonesCache || []).length > 0;
+    if (map && layers.telemetry && zonesReady) {
       layers.telemetry.clearLayers();
-      (data.ore_pockets || []).forEach((p) => {
+      telemetryMarkers = {};
+      (data.ore_pockets || []).forEach((p, i) => {
+        // Monitoring dots use the SAME permanent status colour as the zone pin
+        // they sit on (FLOODED red, ANOMALY orange, OPERATIONAL green) so every
+        // coloured dot on the map speaks one language and pins never appear to
+        // change colour during load.
+        const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {};
+        const st = statusStyle(zone);
         const icon = L.divIcon({
           className: "telemetry-marker",
-          html: `<div class="telemetry-dot">●</div>`,
-          iconSize: [22, 22],
+          html: `<div class="telemetry-dot" style="--dot-color:${st.color};--dot-glow:${st.glow}"></div>`,
+          iconSize: [18, 18],
         });
-        L.marker([p.lat, p.lon], { icon })
-          .bindTooltip(`<b>${p.name}</b><br>Status: ${p.status}<br>Pumps active: ${p.pumps_active}`)
-          .on("click", () => showZoneDetail(p.id))
+        const dot = L.marker([p.lat, p.lon], { icon, riseOnHover: true });
+        dot.payload = p;
+        dot.idx = i;
+        dot.on("add", () => {
+          const el = dot.getElement();
+          if (!el) return;
+          el.dataset.zoneId = p.id || "";
+          telemetryMarkers[p.id] = { dot, el };
+        });
+        dot
+          .bindTooltip(monitorTooltipHtml(i, p, zone), {
+            direction: "top",
+            offset: [0, -10],
+            className: "monitor-tooltip",
+          })
+          .on("click", () => {
+            const zone = (zonesCache || []).find((zz) => zz.zone_id === p.id) || {
+              zone_id: p.id,
+              name: p.name,
+              latitude: p.lat,
+              longitude: p.lon,
+            };
+            onZoneSelect(zone);
+          })
           .addTo(layers.telemetry);
       });
+      applySelectedHighlights();
     }
   } catch (_) {
     renderPitGrid([]);
-  }
-}
-
-async function loadSpectral() {
-  try {
-    renderSpectral(await apiFetch("/api/spectral"));
-  } catch (_) {
-    drawSpectralChart({});
   }
 }
 
@@ -2253,30 +2871,35 @@ function makeLiveXaiPayload(controls = getControls()) {
   const soil = clampPct((Number(controls.soil_moisture_pct || 0) / 60.0) * 100);
   const downtime = clampPct((Number(controls.equipment_downtime_hours || 0) / 14.0) * 100);
   const blast = clampPct((Number(controls.blast_delay_minutes || 0) / 180.0) * 100);
+  const labor = clampPct((Number(controls.labor_drop_pct || 0) / 50.0) * 100);
+  const ore = clampPct((Number(controls.ore_grade === "HG" ? 1 : controls.ore_grade === "FB" ? 0.88 : 1) * 100));
 
   const chartData = [
     { factor: "Rainfall", value: Math.round(rain) },
-    { factor: "Satellite Soil Moisture", value: Math.round(soil) },
+    { factor: "Soil Moisture", value: Math.round(soil) },
     { factor: "Equipment Downtime", value: Math.round(downtime) },
     { factor: "Blast Delay", value: Math.round(blast) },
-    { factor: "Others", value: 1 },
+    { factor: "Labor Drop", value: Math.round(labor) },
+    { factor: "Ore Quality", value: Math.round(ore) },
   ];
   const reasons = [
     `Rainfall is contributing ${Math.round(rain)}% to the explainable driver mix.`,
-    `Satellite soil moisture is contributing ${Math.round(soil)}% of the moisture pressure.`,
-    `Equipment downtime is contributing ${Math.round(downtime)}% of the active delay profile.`,
-    `Blast delay is contributing ${Math.round(blast)}% of the production drag.`,
-    "Other site factors explain the remaining shortfall.",
+    `Soil Moisture is contributing ${Math.round(soil)}% of the moisture pressure.`,
+    `Equipment Downtime is contributing ${Math.round(downtime)}% of the active delay profile.`,
+    `Blast Delay is contributing ${Math.round(blast)}% of the production drag.`,
+    `Labor Drop is contributing ${Math.round(labor)}% of the labor availability risk.`,
+    `Ore Quality is contributing ${Math.round(ore)}% of the ore-grade certainty mix.`,
   ];
 
   return {
     confidence_pct: 96.7,
     attributions: {
       "Rainfall": rain,
-      "Satellite Soil Moisture": soil,
+      "Soil Moisture": soil,
       "Equipment Downtime": downtime,
       "Blast Delay": blast,
-      "Others": 1,
+      "Labor Drop": labor,
+      "Ore Quality": ore,
     },
     narrative: "The XAI view is re-calculating from the active slider values.",
     xai_chart_data: chartData,
@@ -2344,17 +2967,19 @@ function bindControls() {
     const controls = getControls();
     updateControlBadges(controls);
 
-    const livePayload = makeLiveXaiPayload(controls);
-    renderXai(livePayload);
-
     try {
-      await postPredictions(controls);
-      const xaiData = await apiFetch("/api/xai");
+      const xaiData = await apiFetch("/api/xai", {
+        method: "POST",
+        body: JSON.stringify(controls),
+      });
       if (xaiData && Array.isArray(xaiData.xai_chart_data)) {
         renderXai(xaiData);
       }
-    } catch (_) {
+      await postPredictions(controls);
+    } catch (err) {
+      const livePayload = makeLiveXaiPayload(controls);
       renderXai(livePayload);
+      setStatus(err.message || "Could not refresh dashboard.", "error");
     }
   };
 
@@ -2362,20 +2987,11 @@ function bindControls() {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener("input", updateFromLeftPanel);
-    el.addEventListener("change", async () => {
-      const controls = getControls();
-      updateControlBadges(controls);
-      try {
-        await postPredictions(controls);
-        await refreshAll();
-      } catch (err) {
-        setStatus(err.message || "Could not refresh dashboard.", "error");
-      }
-    });
+    el.addEventListener("change", updateFromLeftPanel);
   });
 
   const grade = document.getElementById("ore-grade-mix");
-  if (grade) grade.addEventListener("change", () => refreshAll());
+  if (grade) grade.addEventListener("change", updateFromLeftPanel);
   const execute = document.getElementById("btn-execute-plan");
   const reset = document.getElementById("btn-reset-plan");
   if (execute) execute.addEventListener("click", onExecute);
@@ -2386,8 +3002,12 @@ function bindControls() {
 async function init() {
   setDefaultCustomerDeadline();
   updateControlBadges(getControls());
-  await Promise.allSettled([loadTelemetry(), loadSpectral()]);
+  renderSpectralCard(null);
+  await loadTelemetry();
   await Promise.allSettled([loadAOI(), loadZones(true)]);
+  // Repaint monitoring dots now that zones are loaded so dots and pins share
+  // the same prospectivity colour the moment both appear on the map.
+  await loadTelemetry();
   await loadCustomers();
   await refreshAll();
 }
@@ -2396,9 +3016,18 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("click", (event) => {
     if (event.target.closest("#zone-panel-close")) closeZonePanel(event);
   }, true);
+  // Clicking anywhere except the pixel canvas / popup dismisses the readout.
+  document.addEventListener("click", (event) => {
+    const t = event.target;
+    if (!t || !t.closest) return;
+    if (t.closest("#pixel-popup") || t.closest("#zp-surface-canvas")) return;
+    hidePixelPopup();
+  }, true);
+  initPixelPicking();
   updateClock();
   setInterval(updateClock, 1000);
   bindControls();
+  initExpandMap();
   bindCustomerCommand();
   init();
   setInterval(loadTelemetry, 5000);
